@@ -75,6 +75,8 @@
       <button class="act" data-act="set">= Bestand setzen<br><small>Set amount</small></button>
     </div>
 
+    <button id="btn-count" class="count-btn" type="button">🔢 Zählen / Count<br><small>Inventur: Mengen antippen oder eingeben / tap or type amounts</small></button>
+
     <!-- Opens when one of the four buttons is tapped -->
     <section id="move" class="card" hidden>
       <h2 id="m-title"></h2>
@@ -148,6 +150,38 @@
     <button id="req-refresh" class="link-btn" type="button">Aktualisieren / Refresh</button>
   </main>
 
+  <!-- Count one material: tap standard amounts or type one, then save the total as stock -->
+  <main id="view-count" class="view" hidden>
+    <section class="card">
+      <div class="row-between">
+        <span id="c-no" class="hint"></span>
+        <span id="c-system" class="hint"></span>
+      </div>
+      <h2 id="c-name" class="item-name"></h2>
+      <div class="hint">Gezählt / Counted</div>
+      <div id="c-total" class="stock-big"></div>
+      <p id="c-tally" class="hint"></p>
+      <p id="c-diff" class="preview"></p>
+    </section>
+    <div id="c-steps" class="steps"></div>
+    <section class="card">
+      <label>Menge eingeben / Type amount
+        <div class="qty-row">
+          <input id="c-qty" type="text" inputmode="decimal" autocomplete="off">
+          <span id="c-unit" class="unit"></span>
+        </div>
+      </label>
+      <p id="c-error" class="error" hidden></p>
+      <button id="c-add" class="secondary" type="button">＋ Hinzufügen / Add</button>
+    </section>
+    <div class="two">
+      <button id="c-undo" class="secondary" type="button">↶ Rückgängig / Undo</button>
+      <button id="c-reset" class="secondary" type="button">Neu beginnen / Start over</button>
+    </div>
+    <button id="c-save" class="primary" type="button">Speichern / Save</button>
+    <button id="c-next" class="secondary" type="button">Speichern &amp; nächstes Material / Save &amp; next</button>
+  </main>
+
   <!-- Everything that happened: edits, stock moves and team requests -->
   <main id="view-history" class="view" hidden>
     <p id="h-material" class="chip" hidden>
@@ -197,6 +231,11 @@
       <h2>Kategorien / Categories</h2>
       <p class="hint">Eine pro Zeile, in dieser Reihenfolge angezeigt. / One per line, shown in this order.</p>
       <textarea id="s-categories" rows="7"></textarea>
+    </section>
+    <section class="card">
+      <h2>Zählen / Count</h2>
+      <p class="hint">Standardmengen für die Zähl-Knöpfe, eine pro Zeile (z.B. 1, 10, 500). / Standard amounts for the count buttons, one per line.</p>
+      <textarea id="s-steps" rows="5"></textarea>
     </section>
     <section class="card">
       <h2>Einheiten / Units</h2>

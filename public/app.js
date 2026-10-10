@@ -19,6 +19,7 @@ const LAST_NAMES = {
   "transfer-in": "Umlagerung rein / Transfer in",
   "transfer-out": "Umlagerung raus / Transfer out",
   set: "Bestand gesetzt / Amount set",
+  count: "Gezählt / Counted",
 };
 
 // Names of the history entries
@@ -33,7 +34,7 @@ const HISTORY_NAMES = {
 
 // The filter on the history page: which kinds of entries each choice shows
 const HISTORY_GROUPS = {
-  moves: ["new", "in", "issue", "transfer-in", "transfer-out", "set", "approved"],
+  moves: ["new", "in", "issue", "transfer-in", "transfer-out", "set", "count", "approved"],
   edits: ["new", "edit", "delete"],
   requests: ["request", "approved", "denied"],
 };
@@ -114,6 +115,7 @@ function defaultSettings() {
       "Sonstiges / Other",
     ],
     units: ["Stk.", "m", "Rolle", "Karton", "kg"],
+    countSteps: [1, 5, 10, 50, 100], // the quick-add buttons on the count page
     pin: "", // the APP_PIN set in Cloudflare; lets this phone write to Smartsheet
   };
 }
@@ -173,7 +175,7 @@ function lastText(m) {
   if (!m.last) return "";
   const l = m.last;
   let s = LAST_NAMES[l.kind] || "";
-  if (l.kind === "set") s += ` ${fmtQty(l.before)} → ${fmtQty(l.after)} ${m.unit}`;
+  if (l.kind === "set" || l.kind === "count") s += ` ${fmtQty(l.before)} → ${fmtQty(l.after)} ${m.unit}`;
   else if (l.kind !== "new") s += ` ${l.qty > 0 ? "+" : "−"}${fmtQty(Math.abs(l.qty))} ${m.unit}`;
   if (l.team) s += ` · ${l.team}`;
   if (l.text) s += ` · ${l.text}`;
@@ -218,7 +220,7 @@ let locked = false; // true while the lock screen is shown
 
 function show(next) {
   view = next;
-  for (const v of ["lock", "list", "item", "edit", "settings", "requests", "history"]) $(`#view-${v}`).hidden = v !== next;
+  for (const v of ["lock", "list", "item", "edit", "settings", "requests", "history", "count"]) $(`#view-${v}`).hidden = v !== next;
   $("#btn-back").hidden = next === "list" || next === "lock";
   $("#btn-settings").hidden = next !== "list";
   $("#title").textContent =
@@ -227,6 +229,7 @@ function show(next) {
     next === "settings" ? "Einstellungen / Settings" :
     next === "requests" ? "Anforderungen / Requests" :
     next === "history" ? "Verlauf / History" :
+    next === "count" ? "Zählen / Count" :
     settings.warehouse || "Lager / Warehouse";
   window.scrollTo(0, 0);
 }
@@ -252,12 +255,12 @@ function renderCategoryFilter() {
   sel.value = cats.includes(chosen) ? chosen : "";
 }
 
-function renderList() {
+// The materials the list shows with the current search and filters, in list order
+function visibleMaterials() {
   const query = $("#search").value.trim().toLowerCase();
   const cat = $("#filter-cat").value;
   const lowOnly = $("#filter-low").checked;
-
-  const shown = sortMaterials(
+  return sortMaterials(
     materials.filter(
       (m) =>
         (!cat || m.category === cat) &&
@@ -265,6 +268,10 @@ function renderList() {
         (!query || `${m.no} ${m.ugg || ""} ${m.name} ${m.category} ${m.note || ""}`.toLowerCase().includes(query)),
     ),
   );
+}
+
+function renderList() {
+  const shown = visibleMaterials();
 
   const box = $("#material-list");
   box.innerHTML = "";
@@ -417,6 +424,135 @@ async function saveMove() {
   closeMove();
   renderItem();
   renderList();
+}
+
+// ---------- Count (Zählen) ----------
+// Count a material by tapping standard amounts (+1, +5, +10 …) or typing an amount,
+// then save the total as the new stock. The taps are kept on the phone until saved,
+// so a phone call in the middle of counting loses nothing.
+
+let countTaps = []; // the amounts added so far, e.g. [10, 10, 5, 437]
+
+const countTotal = () => round(countTaps.reduce((sum, q) => sum + q, 0));
+const saveTaps = () => db.run("settings", "readwrite", (s) => s.put({ materialId: current.id, taps: countTaps }, "count"));
+
+// Pack size from the name, e.g. "… VPE=6000m" -> 6000
+function packSize(m) {
+  const match = /VPE\s*=\s*(\d[\d.,]*)/i.exec(m.name || "");
+  const n = match ? parseQty(match[1]) : null;
+  return n > 0 ? n : null;
+}
+
+// [10, 10, 10, 5, 437] -> "3 × 10 + 5 + 437"
+function tallyText(taps) {
+  const groups = [];
+  for (const q of taps) {
+    const last = groups[groups.length - 1];
+    if (last && last.qty === q) last.n++;
+    else groups.push({ qty: q, n: 1 });
+  }
+  return groups.map((g) => (g.n > 1 ? `${g.n} × ${fmtQty(g.qty)}` : fmtQty(g.qty))).join(" + ");
+}
+
+// The next material in the list (same search and filters), for "Save & next"
+function nextMaterial() {
+  const list = visibleMaterials();
+  const i = list.findIndex((m) => m.id === current.id);
+  return i === -1 ? null : list[i + 1] || null;
+}
+
+async function openCount() {
+  const saved = await db.run("settings", "readonly", (s) => s.get("count"));
+  countTaps = saved && saved.materialId === current.id ? saved.taps : [];
+  $("#c-qty").value = "";
+  $("#c-error").hidden = true;
+  renderCount();
+  show("count");
+}
+
+function renderCount() {
+  const m = current;
+  $("#c-no").textContent = m.no;
+  $("#c-system").textContent = `Im System / In system: ${fmtQty(m.stock)} ${m.unit}`;
+  $("#c-name").textContent = m.name;
+  const total = countTotal();
+  const big = $("#c-total");
+  big.textContent = fmtQty(total) + " ";
+  big.append(el("small", {}, m.unit));
+  $("#c-tally").textContent = countTaps.length
+    ? tallyText(countTaps)
+    : "Tippe auf eine Menge oder gib sie unten ein. / Tap an amount or type it below.";
+  const diff = round(total - m.stock);
+  const d = $("#c-diff");
+  d.textContent = `Differenz / Difference: ${diff > 0 ? "+" : diff < 0 ? "−" : "±"}${fmtQty(Math.abs(diff))} ${m.unit}`;
+  d.className = `preview ${diff > 0 ? "plus" : diff < 0 ? "minus" : ""}`;
+  $("#c-unit").textContent = m.unit;
+
+  const box = $("#c-steps");
+  box.innerHTML = "";
+  for (const q of settings.countSteps) {
+    const b = el("button", { type: "button" }, `+${fmtQty(q)}`);
+    b.onclick = () => addCount(q);
+    box.append(b);
+  }
+  const vpe = packSize(m);
+  if (vpe) {
+    const b = el("button", { type: "button", class: "wide" }, `+1 VPE (${fmtQty(vpe)} ${m.unit})`);
+    b.onclick = () => addCount(vpe);
+    box.append(b);
+  }
+  $("#c-undo").disabled = !countTaps.length;
+  $("#c-reset").disabled = !countTaps.length;
+  $("#c-next").hidden = !nextMaterial();
+}
+
+function addCount(qty) {
+  countTaps.push(qty);
+  saveTaps();
+  renderCount();
+}
+
+function addTyped() {
+  const qty = parseQty($("#c-qty").value);
+  if (!qty || Number.isNaN(qty)) {
+    $("#c-error").textContent = "Bitte eine Menge größer als 0 eingeben. / Please enter a quantity above 0.";
+    $("#c-error").hidden = false;
+    return;
+  }
+  $("#c-error").hidden = true;
+  $("#c-qty").value = "";
+  addCount(qty);
+}
+
+async function saveCount(goNext) {
+  if (!countTaps.length && !confirm("Nichts gezählt – Bestand auf 0 setzen? / Nothing counted – set stock to 0?")) return;
+  const m = current;
+  const after = countTotal();
+  m.last = {
+    kind: "count",
+    qty: round(after - m.stock),
+    before: m.stock,
+    after,
+    team: "",
+    text: countTaps.length > 1 ? `Zählung / Count: ${tallyText(countTaps)}` : "",
+  };
+  m.stock = after;
+  m.updatedAt = new Date().toISOString();
+  await db.putMaterial(m);
+  await addHistory(forMaterial(m, m.last));
+  countTaps = [];
+  await db.run("settings", "readwrite", (s) => s.delete("count"));
+  scheduleSync();
+  renderList();
+  toast(`Gezählt / Counted: ${fmtQty(after)} ${m.unit}`);
+  const next = goNext && nextMaterial();
+  if (next) {
+    current = next;
+    await openCount();
+  } else {
+    renderItem();
+    show("item");
+  }
 }
 
 // ---------- 3) New material / edit details ----------
@@ -580,6 +716,7 @@ function renderSettings() {
   $("#s-teams").value = settings.teams.join("\n");
   $("#s-categories").value = settings.categories.join("\n");
   $("#s-units").value = settings.units.join("\n");
+  $("#s-steps").value = settings.countSteps.map((n) => String(n).replace(".", ",")).join("\n");
   $("#s-pin").value = settings.pin || "";
   $("#s-request-link").textContent = requestLink();
   renderSyncStatus();
@@ -603,6 +740,8 @@ function readSettingsForm() {
   settings.categories = cats.length ? cats : defaultSettings().categories;
   const units = lines($("#s-units").value);
   settings.units = units.length ? units : defaultSettings().units;
+  const steps = lines($("#s-steps").value).map(parseQty).filter((n) => n > 0);
+  settings.countSteps = steps.length ? steps : defaultSettings().countSteps;
   settings.pin = $("#s-pin").value.trim();
 }
 
@@ -1121,6 +1260,23 @@ async function init() {
   $("#m-cancel").onclick = closeMove;
   $("#btn-edit").onclick = () => openEdit(false);
 
+  $("#btn-count").onclick = openCount;
+  $("#c-add").onclick = addTyped;
+  $("#c-qty").addEventListener("keydown", (e) => e.key === "Enter" && addTyped());
+  $("#c-undo").onclick = () => {
+    countTaps.pop();
+    saveTaps();
+    renderCount();
+  };
+  $("#c-reset").onclick = () => {
+    if (!confirm("Zählung verwerfen und neu beginnen? / Throw away this count and start over?")) return;
+    countTaps = [];
+    saveTaps();
+    renderCount();
+  };
+  $("#c-save").onclick = () => saveCount(false);
+  $("#c-next").onclick = () => saveCount(true);
+
   $("#e-save").onclick = saveEdit;
   $("#e-name").addEventListener("input", renderSuggestions);
   $("#e-delete").onclick = deleteCurrent;
@@ -1129,7 +1285,7 @@ async function init() {
     renderSettings();
     show("settings");
   };
-  for (const id of ["#s-warehouse", "#s-teams", "#s-categories", "#s-units", "#s-pin"]) {
+  for (const id of ["#s-warehouse", "#s-teams", "#s-categories", "#s-units", "#s-steps", "#s-pin"]) {
     $(id).addEventListener("change", async () => {
       readSettingsForm();
       await saveSettings();
@@ -1183,7 +1339,8 @@ async function init() {
       renderCategoryFilter();
       renderList();
       show("list");
-    } else if ((view === "edit" || view === "history") && current) {
+    } else if ((view === "edit" || view === "history" || view === "count") && current) {
+      if (view === "count") renderItem(); // "Save & next" may have opened another material
       show("item");
     } else {
       current = null;

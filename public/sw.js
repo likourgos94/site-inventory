@@ -1,6 +1,6 @@
 // Service worker: keeps a copy of the app on the phone so it opens without signal.
 // When you change the app, raise the version number so phones pick up the new files.
-const CACHE = "site-inventory-v6";
+const CACHE = "site-inventory-v7";
 const FILES = [
   "/",
   "/app.js",
