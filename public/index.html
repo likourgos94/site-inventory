@@ -25,6 +25,7 @@
       <button id="btn-new" class="primary">+ Neues Material / New material</button>
       <button id="btn-export" class="secondary">Excel exportieren / Export Excel</button>
     </div>
+    <button id="btn-requests" class="secondary">Anforderungen der Teams / Team requests <span id="req-badge" class="count" hidden></span></button>
     <input id="search" type="search" placeholder="Suchen / Search" autocomplete="off">
     <div class="filters">
       <select id="filter-cat" aria-label="Kategorie / Category"></select>
@@ -122,6 +123,13 @@
     <button id="e-delete" class="danger">Material löschen / Delete material</button>
   </main>
 
+  <!-- Team requests waiting for your decision -->
+  <main id="view-requests" class="view" hidden>
+    <p id="req-status" class="hint"></p>
+    <div id="req-list"></div>
+    <button id="req-refresh" class="link-btn" type="button">Aktualisieren / Refresh</button>
+  </main>
+
   <!-- 4) Settings -->
   <main id="view-settings" class="view" hidden>
     <section class="card">
@@ -137,6 +145,12 @@
       <p class="hint sync-status"></p>
       <button id="s-sync" class="secondary" type="button">Jetzt senden / Send now</button>
       <a id="s-sheet-link" class="hint" target="_blank" rel="noopener" hidden>Sheet in Smartsheet öffnen / Open sheet in Smartsheet</a>
+    </section>
+    <section class="card">
+      <h2>Team-Anforderungen / Team requests</h2>
+      <p class="hint">Schicke den Teams diesen Link und den Team-Code (TEAM_PIN aus Cloudflare). Sie können damit Material anfordern; du genehmigst oder lehnst ab. / Send the teams this link and the team code (TEAM_PIN from Cloudflare). They request material with it; you approve or deny.</p>
+      <p id="s-request-link" class="link-box"></p>
+      <button id="s-share-link" class="secondary" type="button">Link teilen / Share link</button>
     </section>
     <section class="card">
       <h2>Teams</h2>
