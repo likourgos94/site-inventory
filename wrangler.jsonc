@@ -1,0 +1,13 @@
+// Cloudflare Workers settings for the Site Inventory app.
+{
+  "name": "site-inventory",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    // Everything in /public (the app itself) is served as normal files.
+    "directory": "./public",
+    "binding": "ASSETS",
+    // Only /api/... requests go to src/index.js (used later for Smartsheet).
+    "run_worker_first": ["/api/*"]
+  }
+}

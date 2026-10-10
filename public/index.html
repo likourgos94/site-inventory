@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Site Inventory</title>
+  <meta name="theme-color" content="#b45309">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Lager">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <button id="btn-back" class="icon-btn" hidden aria-label="Zurück / Back">‹</button>
+    <h1 id="title">Lager / Warehouse</h1>
+    <button id="btn-settings" class="icon-btn" aria-label="Einstellungen / Settings">⚙︎</button>
+  </header>
+
+  <!-- 1) List of all materials -->
+  <main id="view-list" class="view">
+    <div class="two">
+      <button id="btn-new" class="primary">+ Neues Material / New material</button>
+      <button id="btn-export" class="secondary">Excel exportieren / Export Excel</button>
+    </div>
+    <input id="search" type="search" placeholder="Suchen / Search" autocomplete="off">
+    <div class="filters">
+      <select id="filter-cat" aria-label="Kategorie / Category"></select>
+      <label class="check"><input id="filter-low" type="checkbox"> Nur unter Minimum / Below minimum only</label>
+    </div>
+    <p id="summary" class="hint"></p>
+    <div id="material-list"></div>
+    <p id="empty-hint" class="hint" hidden>Noch kein Material. Tippe auf „+ Neues Material“. / No materials yet. Tap “+ New material”.</p>
+  </main>
+
+  <!-- 2) One material: stock and the four actions -->
+  <main id="view-item" class="view" hidden>
+    <section class="card">
+      <div class="row-between">
+        <span id="i-no" class="hint"></span>
+        <span id="i-cat" class="badge"></span>
+      </div>
+      <h2 id="i-name" class="item-name"></h2>
+      <div id="i-stock" class="stock-big"></div>
+      <p id="i-min" class="hint"></p>
+      <p id="i-last" class="hint"></p>
+      <p id="i-note" class="hint"></p>
+    </section>
+
+    <div class="actions">
+      <button class="act in" data-act="in">＋ Wareneingang<br><small>Arrival</small></button>
+      <button class="act out" data-act="issue">− Ausgabe an Team<br><small>Issue to team</small></button>
+      <button class="act" data-act="transfer">⇄ Umlagerung<br><small>Transfer</small></button>
+      <button class="act" data-act="set">= Bestand setzen<br><small>Set amount</small></button>
+    </div>
+
+    <!-- Opens when one of the four buttons is tapped -->
+    <section id="move" class="card" hidden>
+      <h2 id="m-title"></h2>
+      <div id="m-dir-row" class="segmented">
+        <button type="button" data-dir="in">Rein / In (+)</button>
+        <button type="button" data-dir="out">Raus / Out (−)</button>
+      </div>
+      <label><span id="m-qty-label">Menge / Quantity</span>
+        <div class="qty-row">
+          <input id="m-qty" type="text" inputmode="decimal" autocomplete="off">
+          <span id="m-unit" class="unit"></span>
+        </div>
+      </label>
+      <label id="m-team-row">Team
+        <input id="m-team" type="text" list="team-names" autocomplete="off" placeholder="z.B. Team Müller">
+      </label>
+      <label id="m-text-row"><span id="m-text-label">Notiz / Note</span>
+        <input id="m-text" type="text" autocomplete="off">
+      </label>
+      <p id="m-preview" class="preview"></p>
+      <p id="m-error" class="error" hidden></p>
+      <button id="m-save" class="primary">Speichern / Save</button>
+      <button id="m-cancel" class="link-btn" type="button">Abbrechen / Cancel</button>
+    </section>
+
+    <button id="btn-edit" class="secondary">Angaben bearbeiten / Edit details</button>
+  </main>
+
+  <!-- 3) New material / edit details -->
+  <main id="view-edit" class="view" hidden>
+    <section class="card">
+      <label>Art.-Nr. / Item no.
+        <input id="e-no" type="text" autocomplete="off">
+      </label>
+      <label>Bezeichnung / Name
+        <input id="e-name" type="text" autocomplete="off" placeholder="z.B. Speedpipe 7x1,5 orange">
+      </label>
+      <div class="two">
+        <label>Kategorie / Category <select id="e-cat"></select></label>
+        <label>Einheit / Unit <select id="e-unit"></select></label>
+      </div>
+      <div class="two">
+        <label id="e-stock-row">Bestand / Stock
+          <input id="e-stock" type="text" inputmode="decimal" autocomplete="off" placeholder="0">
+        </label>
+        <label>Mindestbestand / Min. stock
+          <input id="e-min" type="text" inputmode="decimal" autocomplete="off" placeholder="optional">
+        </label>
+      </div>
+      <label>Notiz / Note
+        <input id="e-note" type="text" autocomplete="off" placeholder="z.B. Regal 3 / Shelf 3">
+      </label>
+      <p id="e-error" class="error" hidden></p>
+    </section>
+    <button id="e-save" class="primary">Speichern / Save</button>
+    <button id="e-delete" class="danger">Material löschen / Delete material</button>
+  </main>
+
+  <!-- 4) Settings -->
+  <main id="view-settings" class="view" hidden>
+    <section class="card">
+      <h2>Lager / Warehouse</h2>
+      <label>Name <input id="s-warehouse" type="text"></label>
+    </section>
+    <section class="card">
+      <h2>Teams</h2>
+      <p class="hint">Ein Team pro Zeile. Neue Teams bei „Ausgabe“ werden automatisch ergänzt. / One team per line. New teams typed in “Issue” are added automatically.</p>
+      <textarea id="s-teams" rows="4"></textarea>
+    </section>
+    <section class="card">
+      <h2>Kategorien / Categories</h2>
+      <p class="hint">Eine pro Zeile, in dieser Reihenfolge angezeigt. / One per line, shown in this order.</p>
+      <textarea id="s-categories" rows="7"></textarea>
+    </section>
+    <section class="card">
+      <h2>Einheiten / Units</h2>
+      <p class="hint">Eine pro Zeile. / One per line.</p>
+      <textarea id="s-units" rows="5"></textarea>
+    </section>
+    <p class="hint">Alles wird automatisch auf diesem iPhone gespeichert. Exportiere regelmäßig nach Excel als Sicherung. / Everything is saved automatically on this iPhone. Export to Excel regularly as a backup.</p>
+  </main>
+
+  <datalist id="team-names"></datalist>
+  <div id="toast" hidden></div>
+
+  <script src="/xlsx.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
