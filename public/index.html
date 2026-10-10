@@ -31,6 +31,7 @@
       <label class="check"><input id="filter-low" type="checkbox"> Nur unter Minimum / Below minimum only</label>
     </div>
     <p id="summary" class="hint"></p>
+    <p class="hint sync-status"></p>
     <div id="material-list"></div>
     <p id="empty-hint" class="hint" hidden>Noch kein Material. Tippe auf „+ Neues Material“. / No materials yet. Tap “+ New material”.</p>
   </main>
@@ -119,6 +120,16 @@
     <section class="card">
       <h2>Lager / Warehouse</h2>
       <label>Name <input id="s-warehouse" type="text"></label>
+    </section>
+    <section class="card">
+      <h2>Smartsheet</h2>
+      <p class="hint">Der Bestand wird nach jeder Änderung an das Sheet „Lagerbestand – Inventory“ gesendet (eine Zeile pro Material). / The stock is sent to the sheet “Lagerbestand – Inventory” after every change (one row per material).</p>
+      <label>PIN (APP_PIN aus Cloudflare / from Cloudflare)
+        <input id="s-pin" type="password" autocomplete="off">
+      </label>
+      <p class="hint sync-status"></p>
+      <button id="s-sync" class="secondary" type="button">Jetzt senden / Send now</button>
+      <a id="s-sheet-link" class="hint" target="_blank" rel="noopener" hidden>Sheet in Smartsheet öffnen / Open sheet in Smartsheet</a>
     </section>
     <section class="card">
       <h2>Teams</h2>

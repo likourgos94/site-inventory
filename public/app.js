@@ -71,6 +71,7 @@ function defaultSettings() {
       "Sonstiges / Other",
     ],
     units: ["Stk.", "m", "Rolle", "Karton", "kg"],
+    pin: "", // the APP_PIN set in Cloudflare; lets this phone write to Smartsheet
   };
 }
 
@@ -343,6 +344,7 @@ async function saveMove() {
   current.stock = r.after;
   current.updatedAt = new Date().toISOString();
   await db.putMaterial(current);
+  scheduleSync();
 
   if (team && !settings.teams.includes(team)) {
     settings.teams.push(team);
@@ -406,6 +408,7 @@ async function saveEdit() {
       note: $("#e-note").value.trim(),
     });
     await db.putMaterial(current);
+    scheduleSync();
     renderItem();
     renderList();
     show("item");
@@ -428,6 +431,7 @@ async function saveEdit() {
   };
   materials.push(m);
   await db.putMaterial(m);
+  scheduleSync();
   renderCategoryFilter();
   renderList();
   toast(`${m.name} angelegt / created`);
@@ -440,6 +444,7 @@ async function deleteCurrent() {
   await db.deleteMaterial(current.id);
   materials = materials.filter((m) => m.id !== current.id);
   current = null;
+  scheduleSync();
   renderCategoryFilter();
   renderList();
   show("list");
@@ -454,6 +459,8 @@ function renderSettings() {
   $("#s-teams").value = settings.teams.join("\n");
   $("#s-categories").value = settings.categories.join("\n");
   $("#s-units").value = settings.units.join("\n");
+  $("#s-pin").value = settings.pin || "";
+  renderSyncStatus();
 }
 
 function renderTeams() {
@@ -474,12 +481,29 @@ function readSettingsForm() {
   settings.categories = cats.length ? cats : defaultSettings().categories;
   const units = lines($("#s-units").value);
   settings.units = units.length ? units : defaultSettings().units;
+  settings.pin = $("#s-pin").value.trim();
 }
 
 // ---------- Excel export ----------
 
+// One material as the columns of the Excel file and of the Smartsheet sheet.
+function materialRow(m) {
+  return {
+    id: m.id,
+    no: m.no,
+    name: m.name,
+    category: m.category,
+    stock: m.stock,
+    unit: m.unit,
+    min: m.min ?? "",
+    low: isLow(m),
+    updated: fmtDateTime(m.updatedAt),
+    last: lastText(m),
+    note: m.note || "",
+  };
+}
+
 async function exportExcel() {
-  const list = sortMaterials([...materials]);
   const today = localDate(new Date());
   const blob = makeXlsx({
     sheetName: "Lagerbestand",
@@ -495,20 +519,82 @@ async function exportExcel() {
       { title: "Letzte Bewegung / Last move", width: 44 },
       { title: "Notiz / Note", width: 24 },
     ],
-    rows: list.map((m) => [
-      m.no,
-      m.name,
-      m.category,
-      m.stock,
-      m.unit,
-      m.min ?? "",
-      isLow(m) ? "JA / YES" : "",
-      fmtDateTime(m.updatedAt),
-      lastText(m),
-      m.note || "",
-    ]),
+    rows: sortMaterials([...materials])
+      .map(materialRow)
+      .map((r) => [r.no, r.name, r.category, r.stock, r.unit, r.min, r.low ? "JA / YES" : "", r.updated, r.last, r.note]),
   });
   await shareFile(blob, `Lagerbestand-${today}.xlsx`);
+}
+
+// ---------- Smartsheet ----------
+// After every change the whole list is sent to the Worker, which updates the sheet.
+// Without signal it waits and sends as soon as the phone is online again.
+
+let syncTimer = null;
+let syncing = false;
+let changes = 0; // counts changes, so one made while sending is not marked as sent
+
+function scheduleSync() {
+  changes++;
+  sync.dirty = true;
+  saveSyncState();
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncNow, 1500);
+}
+
+async function syncNow() {
+  clearTimeout(syncTimer);
+  if (syncing) return scheduleSync(); // try again when the running one is done
+  if (!settings.pin) {
+    sync.error = "PIN fehlt – in ⚙︎ eintragen / PIN missing – enter it in ⚙︎";
+    return renderSyncStatus();
+  }
+  if (!navigator.onLine) {
+    sync.error = "";
+    return renderSyncStatus();
+  }
+  syncing = true;
+  const sending = changes;
+  renderSyncStatus();
+  try {
+    const res = await fetch("/api/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-App-Pin": settings.pin },
+      body: JSON.stringify({ rows: materials.map(materialRow) }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Fehler / Error ${res.status}`);
+    sync.dirty = changes !== sending;
+    sync.error = "";
+    sync.lastOk = new Date().toISOString();
+    if (data.sheetUrl) sync.sheetUrl = data.sheetUrl;
+  } catch (e) {
+    sync.error = e.message === "Failed to fetch" || e.message === "Load failed" ? "" : e.message;
+  } finally {
+    syncing = false;
+    saveSyncState();
+    renderSyncStatus();
+  }
+}
+
+// { dirty, lastOk, error, sheetUrl } – kept on the phone so "not sent yet" survives closing the app
+let sync = { dirty: false, lastOk: "", error: "", sheetUrl: "" };
+const saveSyncState = () => db.run("settings", "readwrite", (s) => s.put(sync, "sync"));
+
+function renderSyncStatus() {
+  const text =
+    syncing ? "Smartsheet: wird gesendet … / sending …" :
+    sync.error ? `Smartsheet: ${sync.error}` :
+    sync.dirty ? "Smartsheet: noch nicht gesendet (kein Netz?) / not sent yet (no signal?)" :
+    sync.lastOk ? `Smartsheet: aktuell / up to date (${fmtDateTime(sync.lastOk)})` :
+    "Smartsheet: noch nie gesendet / never sent";
+  for (const node of $$(".sync-status")) {
+    node.textContent = text;
+    node.classList.toggle("bad", !!sync.error);
+  }
+  const link = $("#s-sheet-link");
+  link.hidden = !sync.sheetUrl;
+  if (sync.sheetUrl) link.href = sync.sheetUrl;
 }
 
 // Opens the iPhone share sheet (Mail, WhatsApp, Save to Files...).
@@ -535,6 +621,7 @@ async function init() {
   const saved = await db.getSettings();
   settings = { ...defaultSettings(), ...(saved || {}) };
   materials = await db.allMaterials();
+  sync = { ...sync, ...((await db.run("settings", "readonly", (s) => s.get("sync"))) || {}) };
   renderTeams();
   renderCategoryFilter();
   renderList();
@@ -566,13 +653,23 @@ async function init() {
     renderSettings();
     show("settings");
   };
-  for (const id of ["#s-warehouse", "#s-teams", "#s-categories", "#s-units"]) {
+  for (const id of ["#s-warehouse", "#s-teams", "#s-categories", "#s-units", "#s-pin"]) {
     $(id).addEventListener("change", async () => {
       readSettingsForm();
       await saveSettings();
       renderCategoryFilter();
+      if (id === "#s-pin") syncNow();
     });
   }
+  $("#s-sync").onclick = syncNow;
+
+  // Send to Smartsheet when the app opens, and when signal comes back.
+  window.addEventListener("online", () => sync.dirty && syncNow());
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && sync.dirty) syncNow();
+  });
+  renderSyncStatus();
+  if (materials.length) syncNow();
 
   $("#btn-back").onclick = async () => {
     if (view === "settings") {

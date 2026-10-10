@@ -16,12 +16,13 @@ Built for FTTx site management (project LAHLU01, Lahnau).
 - Items below their minimum stock turn red
 - **Export Excel**: an `.xlsx` file with all materials and amounts, opened in the iPhone share sheet (Mail, WhatsApp, Save to Files)
 - Saves on the phone and works without signal. No history is kept: only the current amount and the last change.
+- **Smartsheet**: after every change the stock is sent to the sheet *Lagerbestand – Inventory* (one row per material). Without signal it is sent as soon as the phone is online again. The app creates the sheet itself the first time.
 
 ## Plan
 
 1. Material list, the four actions, Excel export ✅
-2. Send the stock to Smartsheet (one row per material)
-3. Login, so only you can change stock
+2. Send the stock to Smartsheet (one row per material), protected by a PIN ✅
+3. Login for more people (needed for step 4)
 4. Later: teams request material, you approve, and it is issued to that team
 
 ## Put it online (Cloudflare, one time)
@@ -34,13 +35,23 @@ Built for FTTx site management (project LAHLU01, Lahnau).
 
 From then on, every change on the `main` branch goes online automatically.
 
+## Connect Smartsheet (one time)
+
+1. In Smartsheet: profile picture → **Personal Settings** → **API Access** → **Generate new access token**. Copy it.
+2. In Cloudflare: **Workers & Pages** → **site-inventory** → **Settings** → **Variables and Secrets** → **Add**:
+   - Type **Secret**, name `SMARTSHEET_TOKEN`, value = the token
+   - Type **Secret**, name `APP_PIN`, value = a PIN you choose
+3. In the app: ⚙︎ → **Smartsheet** → type the same PIN.
+
+The sheet always follows the phone: changes typed into the stock columns in Smartsheet are overwritten by the next change on the phone. Rows you add by hand in Smartsheet are left alone. Don't edit the *App-ID* column.
+
 ## Install on the iPhone
 
 1. Open the address in **Safari**.
 2. Tap the **Share** button, then **Add to Home Screen**.
 3. Open it from the home screen icon. Tap ⚙︎ to set the warehouse name, teams, categories and units.
 
-The stock is stored only on this iPhone until step 2 (Smartsheet) is built. Deleting the app icon deletes it, so export to Excel regularly as a backup.
+The stock is stored on this iPhone, with a copy in Smartsheet. Deleting the app icon deletes the phone's copy, so export to Excel now and then as a backup.
 
 ## Files
 
@@ -51,7 +62,7 @@ The stock is stored only on this iPhone until step 2 (Smartsheet) is built. Dele
 | `public/xlsx.js` | Makes the Excel file (small, no library needed) |
 | `public/style.css` | Colors and layout |
 | `public/sw.js` | Offline support. Raise the `CACHE` version after changes |
-| `src/index.js` | Cloudflare Worker, used for Smartsheet later |
+| `src/index.js` | Cloudflare Worker: checks the PIN and writes the sheet to Smartsheet |
 | `wrangler.jsonc` | Cloudflare settings |
 
 ## Try it on a computer
