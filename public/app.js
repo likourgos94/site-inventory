@@ -646,7 +646,7 @@ const saveSyncState = () => db.run("settings", "readwrite", (s) => s.put(sync, "
 function renderSyncStatus() {
   const text =
     syncing ? "Smartsheet: wird gesendet … / sending …" :
-    sync.error ? `Smartsheet: ${sync.error}` :
+    sync.error ? (sync.error.startsWith("Smartsheet") ? sync.error : `Smartsheet: ${sync.error}`) :
     sync.dirty ? "Smartsheet: noch nicht gesendet (kein Netz?) / not sent yet (no signal?)" :
     sync.lastOk ? `Smartsheet: aktuell / up to date (${fmtDateTime(sync.lastOk)})` :
     "Smartsheet: noch nie gesendet / never sent";

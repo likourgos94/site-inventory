@@ -8,7 +8,10 @@
 //   APP_PIN           your PIN; only with it can stock be changed and requests approved
 //   TEAM_PIN          the code you give to the teams so they can send requests
 
-const API = "https://api.smartsheet.com/2.0";
+// Smartsheet has separate servers for US accounts (app.smartsheet.com) and EU accounts
+// (app.smartsheet.eu). A token only works on its own server, so the Worker tries both.
+const APIS = ["https://api.smartsheet.com/2.0", "https://api.smartsheet.eu/2.0"];
+let api = null; // the server that last accepted the token
 
 // Each sheet: its name and columns. "key" is the field name used in the code.
 // The last column links a row to the app; do not edit it in Smartsheet.
@@ -109,7 +112,7 @@ function fail(status, message) {
 
 // "manager" needs APP_PIN. "team" accepts TEAM_PIN or APP_PIN.
 function checkPin(request, env, who) {
-  if (!env.SMARTSHEET_TOKEN || !env.APP_PIN || (who === "team" && !env.TEAM_PIN)) {
+  if (!token(env) || !env.APP_PIN || (who === "team" && !env.TEAM_PIN)) {
     fail(503, "In Cloudflare noch nicht eingerichtet. / Not set up in Cloudflare yet.");
   }
   const appPin = request.headers.get("X-App-Pin") || "";
@@ -129,15 +132,35 @@ function sameText(a, b) {
 
 // ---------- Smartsheet ----------
 
+// The token as pasted in Cloudflare, without spaces, quotes or "Bearer " around it.
+function token(env) {
+  return String(env.SMARTSHEET_TOKEN || "")
+    .trim()
+    .replace(/^["']+|["']+$/g, "")
+    .replace(/^Bearer\s+/i, "")
+    .trim();
+}
+
 async function smartsheet(env, method, path, body) {
-  const res = await fetch(API + path, {
-    method,
-    headers: { Authorization: `Bearer ${env.SMARTSHEET_TOKEN}`, "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) fail(502, `Smartsheet: ${data.message || res.statusText} (${res.status})`);
-  return data;
+  // The server that worked last time first, then the other one.
+  // A refused token (401) means nothing was done, so trying the other server is safe.
+  for (const base of api ? [api, ...APIS.filter((b) => b !== api)] : APIS) {
+    const res = await fetch(base + path, {
+      method,
+      headers: { Authorization: `Bearer ${token(env)}`, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) continue;
+    if (!res.ok) fail(502, `Smartsheet: ${data.message || res.statusText} (${res.status})`);
+    api = base;
+    return data;
+  }
+  fail(
+    502,
+    "Smartsheet: Token ungültig – in Smartsheet einen neuen API-Token erstellen und in Cloudflare als SMARTSHEET_TOKEN eintragen. " +
+      "/ Token invalid – create a new API token in Smartsheet and save it in Cloudflare as SMARTSHEET_TOKEN. (401)",
+  );
 }
 
 // Finds a sheet by its name, or creates it the first time.
