@@ -64,9 +64,15 @@ function defaultSettings() {
     categories: [
       "Kabel / Cable",
       "Rohr / Duct",
-      "HÜP / APL",
-      "Muffe / Closure",
       "Verbinder / Connector",
+      "Hauseinführung / House entry",
+      "HÜP / APL",
+      "Verteiler / Cabinet",
+      "Schacht / Manhole",
+      "Muffe / Closure",
+      "Patchkabel / Patch cord",
+      "Endgerät / CPE",
+      "Kennzeichnung / Marking",
       "Werkzeug / Tool",
       "Sonstiges / Other",
     ],
@@ -201,7 +207,7 @@ function renderList() {
       (m) =>
         (!cat || m.category === cat) &&
         (!lowOnly || isLow(m)) &&
-        (!query || `${m.no} ${m.name} ${m.category} ${m.note || ""}`.toLowerCase().includes(query)),
+        (!query || `${m.no} ${m.ugg || ""} ${m.name} ${m.category} ${m.note || ""}`.toLowerCase().includes(query)),
     ),
   );
 
@@ -216,7 +222,7 @@ function renderList() {
     const btn = el("button", { class: `mat${isLow(m) ? " low" : ""}`, type: "button" });
     const left = el("div");
     left.append(el("div", { class: "name" }, m.name));
-    left.append(el("div", { class: "meta" }, m.no + (isLow(m) ? ` · unter Minimum / below min. (${fmtQty(m.min)})` : "")));
+    left.append(el("div", { class: "meta" }, m.no + (m.ugg ? ` · ${m.ugg}` : "") + (isLow(m) ? ` · unter Minimum / below min. (${fmtQty(m.min)})` : "")));
     const qty = el("div", { class: "qty" }, fmtQty(m.stock) + " ");
     qty.append(el("small", {}, m.unit));
     btn.append(left, qty);
@@ -244,7 +250,7 @@ function openItem(id) {
 
 function renderItem() {
   const m = current;
-  $("#i-no").textContent = m.no;
+  $("#i-no").textContent = m.no + (m.ugg ? ` · UGG ${m.ugg}` : "");
   $("#i-cat").textContent = m.category || "–";
   $("#i-name").textContent = m.name;
   const stock = $("#i-stock");
@@ -371,7 +377,9 @@ function openEdit(isNew) {
   if (isNew) current = null;
   const m = current;
   $("#e-no").value = m ? m.no : nextNo();
+  $("#e-ugg").value = m ? m.ugg || "" : "";
   $("#e-name").value = m ? m.name : "";
+  $("#e-suggest").hidden = true;
   fillSelect($("#e-cat"), settings.categories, m && m.category);
   fillSelect($("#e-unit"), settings.units, m && m.unit);
   // Stock is only typed here for a new material; afterwards use the four actions.
@@ -403,6 +411,7 @@ async function saveEdit() {
   if (current) {
     Object.assign(current, {
       no, name, min,
+      ugg: $("#e-ugg").value.trim(),
       category: $("#e-cat").value,
       unit: $("#e-unit").value,
       note: $("#e-note").value.trim(),
@@ -421,6 +430,7 @@ async function saveEdit() {
   const m = {
     id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     no, name, min,
+    ugg: $("#e-ugg").value.trim(),
     category: $("#e-cat").value,
     unit: $("#e-unit").value,
     stock: stock || 0,
@@ -438,6 +448,43 @@ async function saveEdit() {
   openItem(m.id);
 }
 
+// While typing the name of a NEW material: matching catalog items (all typed words must match).
+function renderSuggestions() {
+  const box = $("#e-suggest");
+  const words = $("#e-name").value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  box.innerHTML = "";
+  if (current || !words.length || words.join("").length < 2) {
+    box.hidden = true;
+    return;
+  }
+  const hits = CATALOG.filter((c) => {
+    const text = `${c.no} ${c.ugg} ${c.name}`.toLowerCase();
+    return words.every((w) => text.includes(w));
+  }).slice(0, 8);
+  for (const c of hits) {
+    const have = materials.find((m) => m.no === c.no);
+    const btn = el("button", { type: "button" });
+    btn.append(el("div", {}, c.name));
+    const meta = el("div", { class: "meta" }, `Netceed ${c.no}` + (c.ugg ? ` · UGG ${c.ugg}` : "") + ` · ${c.category} · `);
+    if (have) meta.append(el("span", { class: "have" }, "schon angelegt – öffnen / already added – open"));
+    else meta.append(c.unit);
+    btn.append(meta);
+    btn.onclick = () => (have ? openItem(have.id) : pickCatalog(c));
+    box.append(btn);
+  }
+  box.hidden = hits.length === 0;
+}
+
+function pickCatalog(c) {
+  $("#e-name").value = c.name;
+  $("#e-no").value = c.no;
+  $("#e-ugg").value = c.ugg;
+  fillSelect($("#e-cat"), settings.categories, c.category);
+  fillSelect($("#e-unit"), settings.units, c.unit);
+  $("#e-suggest").hidden = true;
+  $("#e-stock").focus();
+}
+
 async function deleteCurrent() {
   if (!current) return;
   if (!confirm(`„${current.name}“ wirklich löschen? / Really delete “${current.name}”?`)) return;
@@ -451,6 +498,17 @@ async function deleteCurrent() {
 }
 
 // ---------- 4) Settings ----------
+
+// Once per phone: add the categories used by the catalog (before "Sonstiges / Other").
+function addCatalogCategories() {
+  for (const c of CATALOG.map((x) => x.category)) {
+    if (settings.categories.includes(c)) continue;
+    const other = settings.categories.indexOf("Sonstiges / Other");
+    settings.categories.splice(other === -1 ? settings.categories.length : other, 0, c);
+  }
+  settings.catalogCategories = true;
+  db.putSettings(settings);
+}
 
 const lines = (text) => [...new Set(text.split("\n").map((s) => s.trim()).filter(Boolean))];
 
@@ -491,6 +549,7 @@ function materialRow(m) {
   return {
     id: m.id,
     no: m.no,
+    ugg: m.ugg || "",
     name: m.name,
     category: m.category,
     stock: m.stock,
@@ -509,7 +568,8 @@ async function exportExcel() {
     sheetName: "Lagerbestand",
     columns: [
       { title: "Art.-Nr. / Item no.", width: 14 },
-      { title: "Bezeichnung / Name", width: 36 },
+      { title: "UGG-Code", width: 16 },
+      { title: "Bezeichnung / Name", width: 50 },
       { title: "Kategorie / Category", width: 22 },
       { title: "Bestand / Stock", width: 14 },
       { title: "Einheit / Unit", width: 10 },
@@ -521,7 +581,7 @@ async function exportExcel() {
     ],
     rows: sortMaterials([...materials])
       .map(materialRow)
-      .map((r) => [r.no, r.name, r.category, r.stock, r.unit, r.min, r.low ? "JA / YES" : "", r.updated, r.last, r.note]),
+      .map((r) => [r.no, r.ugg, r.name, r.category, r.stock, r.unit, r.min, r.low ? "JA / YES" : "", r.updated, r.last, r.note]),
   });
   await shareFile(blob, `Lagerbestand-${today}.xlsx`);
 }
@@ -620,6 +680,7 @@ async function shareFile(blob, fileName) {
 async function init() {
   const saved = await db.getSettings();
   settings = { ...defaultSettings(), ...(saved || {}) };
+  if (!settings.catalogCategories) addCatalogCategories();
   materials = await db.allMaterials();
   sync = { ...sync, ...((await db.run("settings", "readonly", (s) => s.get("sync"))) || {}) };
   renderTeams();
@@ -647,6 +708,7 @@ async function init() {
   $("#btn-edit").onclick = () => openEdit(false);
 
   $("#e-save").onclick = saveEdit;
+  $("#e-name").addEventListener("input", renderSuggestions);
   $("#e-delete").onclick = deleteCurrent;
 
   $("#btn-settings").onclick = () => {

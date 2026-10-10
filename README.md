@@ -7,7 +7,7 @@ Built for FTTx site management (project LAHLU01, Lahnau).
 ## What it does
 
 - **Material list** grouped by category, with search and a filter for items below minimum stock
-- **New material**: item number (automatic, e.g. `MAT-0001`), name, category, unit, starting stock, optional minimum stock, note
+- **New material**: start typing a name, Netceed number or UGG code and pick from the built-in catalog (UGG / Netceed materials). Item no., UGG code, name, category and unit are filled in. Other materials get an automatic number (e.g. `MAT-0001`).
 - On each material, four buttons:
   - **Wareneingang / Arrival**: adds to stock
   - **Ausgabe an Team / Issue to team**: takes from stock (team name is remembered)
@@ -59,6 +59,7 @@ The stock is stored on this iPhone, with a copy in Smartsheet. Deleting the app 
 |---|---|
 | `public/index.html` | The screens |
 | `public/app.js` | The app logic |
+| `public/catalog.js` | The material catalog for the suggestions. Copy a line to add a material |
 | `public/xlsx.js` | Makes the Excel file (small, no library needed) |
 | `public/style.css` | Colors and layout |
 | `public/sw.js` | Offline support. Raise the `CACHE` version after changes |
