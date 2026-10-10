@@ -193,3 +193,33 @@ button { font: inherit; cursor: pointer; }
   flex: 0 0 auto; border: 0; background: transparent; color: var(--danger);
   font-size: 14px; padding: 6px 0 6px 8px;
 }
+
+/* Lock screen */
+#view-lock a.secondary { text-align: center; text-decoration: none; }
+
+/* History */
+#h-search { margin: 0 0 8px; }
+#h-filter { margin: 0 0 4px; }
+.hist {
+  display: flex; justify-content: space-between; gap: 10px;
+  background: var(--card); border-left: 4px solid var(--line); border-radius: 12px;
+  padding: 10px 12px; margin-bottom: 8px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.hist .kind { font-size: 13px; color: var(--muted); }
+.hist .name { font-weight: 600; margin-top: 2px; }
+.hist .meta { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.hist .change { text-align: right; white-space: nowrap; }
+.hist .qty { font-weight: 700; }
+.hist .qty.plus { color: var(--ok); }
+.hist .qty.minus { color: var(--danger); }
+.hist.new, .hist.in, .hist.transfer-in { border-left-color: var(--ok); }
+.hist.issue, .hist.transfer-out, .hist.approved { border-left-color: var(--danger); }
+.hist.request, .hist.set { border-left-color: var(--brand); }
+.hist.denied, .hist.delete { border-left-color: #9ca3af; }
+.chip {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  margin: 0 0 8px; padding: 8px 10px; border-radius: 10px;
+  background: var(--brand-light); font-size: 14px;
+}
+.chip button { border: 0; background: transparent; color: var(--brand); font-size: 14px; white-space: nowrap; }

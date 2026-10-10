@@ -1,6 +1,7 @@
-// The Cloudflare Worker. It keeps two Smartsheet sheets, one row per record:
+// The Cloudflare Worker. It keeps three Smartsheet sheets, one row per record:
 //   "Lagerbestand – Inventory"   the stock, sent from your phone (one row per material)
 //   "Anforderungen – Requests"   material requests from teams (one row per requested material)
+//   "Verlauf – History"          every change made on your phone (one row per change, only added)
 // The Smartsheet API token stays secret here and never goes to a phone.
 //
 // Secrets (Cloudflare → site-inventory → Settings → Variables and Secrets):
@@ -53,6 +54,24 @@ const REQUESTS = {
   ],
 };
 
+const HISTORY = {
+  name: "Verlauf – History",
+  columns: [
+    { key: "time", title: "Zeit / Time", type: "TEXT_NUMBER", primary: true },
+    { key: "kind", title: "Art / Type", type: "TEXT_NUMBER" },
+    { key: "no", title: "Art.-Nr. / Item no.", type: "TEXT_NUMBER" },
+    { key: "name", title: "Bezeichnung / Name", type: "TEXT_NUMBER" },
+    { key: "change", title: "Menge / Qty", type: "TEXT_NUMBER" },
+    { key: "before", title: "Vorher / Before", type: "TEXT_NUMBER" },
+    { key: "after", title: "Nachher / After", type: "TEXT_NUMBER" },
+    { key: "unit", title: "Einheit / Unit", type: "TEXT_NUMBER" },
+    { key: "team", title: "Team", type: "TEXT_NUMBER" },
+    { key: "request", title: "Anforderung / Request", type: "TEXT_NUMBER" },
+    { key: "text", title: "Details", type: "TEXT_NUMBER" },
+    { key: "id", title: "Eintrag-ID (nicht ändern / do not edit)", type: "TEXT_NUMBER" },
+  ],
+};
+
 const OPEN = "Offen / Open";
 const APPROVED = "Genehmigt / Approved";
 const DENIED = "Abgelehnt / Denied";
@@ -67,9 +86,15 @@ export default {
 
     try {
       // Your phone (needs APP_PIN)
+      if (route === "GET /api/check") {
+        checkPin(request, env, "manager"); // the lock screen asks whether a PIN is right
+        return Response.json({ ok: true });
+      }
       if (route === "POST /api/sync") {
         checkPin(request, env, "manager");
-        return Response.json({ ok: true, ...(await syncInventory(env, (await request.json()).rows)) });
+        const body = await request.json();
+        const result = await syncInventory(env, body.rows);
+        return Response.json({ ok: true, ...result, historyAdded: await addHistory(env, body.history || []) });
       }
       if (route === "GET /api/requests/open") {
         checkPin(request, env, "manager");
@@ -182,7 +207,6 @@ async function sheetId(env, def) {
 }
 
 // Reads a sheet. Returns { id, permalink, colId: {key: columnId}, rows: [{ rowId, v: {key: value} }] }.
-// Adds any column that is missing (new in an app update, or deleted by mistake) at its usual place.
 async function openSheet(env, def) {
   const id = await sheetId(env, def);
   let sheet;
@@ -192,8 +216,20 @@ async function openSheet(env, def) {
     delete sheetIds[def.name]; // the sheet may have been deleted; look it up again next time
     throw e;
   }
-  const byTitle = Object.fromEntries(sheet.columns.map((c) => [c.title, c.id]));
-  let count = sheet.columns.length;
+  const { colId, keyOf } = await ensureColumns(env, def, id, sheet.columns);
+  const rows = (sheet.rows || []).map((row) => {
+    const v = {};
+    for (const cell of row.cells || []) if (keyOf[cell.columnId]) v[keyOf[cell.columnId]] = cell.value;
+    return { rowId: row.id, v };
+  });
+  return { id, permalink: sheet.permalink || "", colId, rows };
+}
+
+// Adds any column that is missing (new in an app update, or deleted by mistake) at its usual place.
+// Returns { colId: {key: columnId}, keyOf: {columnId: key} }.
+async function ensureColumns(env, def, id, columns) {
+  const byTitle = Object.fromEntries(columns.map((c) => [c.title, c.id]));
+  let count = columns.length;
   for (const [pos, c] of def.columns.entries()) {
     if (byTitle[c.title]) continue;
     const added = await smartsheet(env, "POST", `/sheets/${id}/columns`, [
@@ -202,14 +238,10 @@ async function openSheet(env, def) {
     byTitle[c.title] = [].concat(added.result)[0].id;
     count++;
   }
-  const colId = Object.fromEntries(def.columns.map((c) => [c.key, byTitle[c.title]]));
-  const keyOf = Object.fromEntries(def.columns.map((c) => [byTitle[c.title], c.key]));
-  const rows = (sheet.rows || []).map((row) => {
-    const v = {};
-    for (const cell of row.cells || []) if (keyOf[cell.columnId]) v[keyOf[cell.columnId]] = cell.value;
-    return { rowId: row.id, v };
-  });
-  return { id, permalink: sheet.permalink || "", colId, rows };
+  return {
+    colId: Object.fromEntries(def.columns.map((c) => [c.key, byTitle[c.title]])),
+    keyOf: Object.fromEntries(def.columns.map((c) => [byTitle[c.title], c.key])),
+  };
 }
 
 // Cells for a row: [{ columnId, value }] for the given keys.
@@ -238,10 +270,10 @@ function chunks(list, size) {
 }
 
 // Date and time in Germany, e.g. "10.10.2026 19:53"
-const berlinTime = () =>
+const berlinTime = (date = new Date()) =>
   new Intl.DateTimeFormat("de-DE", {
     timeZone: "Europe/Berlin", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
-  }).format(new Date()).replace(",", "");
+  }).format(date).replace(",", "");
 
 // ---------- Inventory sheet ----------
 
@@ -380,4 +412,32 @@ async function decideRequest(env, body) {
   });
   for (const part of chunks(updates, 200)) await smartsheet(env, "PUT", `/sheets/${s.id}/rows`, part);
   return { status: approve ? APPROVED : DENIED };
+}
+
+// ---------- History sheet ----------
+
+// Adds the phone's new history entries as rows at the bottom. The sheet is never read,
+// only its columns, because it grows with every change. The phone remembers what it sent.
+async function addHistory(env, entries) {
+  if (!Array.isArray(entries) || entries.length > 500 || entries.some((e) => !e || typeof e.id !== "string" || !e.id)) {
+    fail(400, "Ungültige Daten / Invalid data");
+  }
+  if (!entries.length) return 0;
+  const id = await sheetId(env, HISTORY);
+  let columns;
+  try {
+    columns = (await smartsheet(env, "GET", `/sheets/${id}/columns?includeAll=true`)).data || [];
+  } catch (e) {
+    delete sheetIds[HISTORY.name]; // the sheet may have been deleted; look it up again next time
+    throw e;
+  }
+  const s = { id, ...(await ensureColumns(env, HISTORY, id, columns)) };
+  const keys = HISTORY.columns.map((c) => c.key);
+  const rows = entries.map((e) => {
+    const at = new Date(e.time);
+    const time = Number.isNaN(at.getTime()) ? "" : berlinTime(at);
+    return { toBottom: true, cells: cellsOf(HISTORY, s, { ...e, time }, keys).filter((c) => c.value !== "") };
+  });
+  for (const part of chunks(rows, 200)) await smartsheet(env, "POST", `/sheets/${id}/rows`, part);
+  return rows.length;
 }
