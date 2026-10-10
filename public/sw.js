@@ -1,11 +1,12 @@
 // Service worker: keeps a copy of the app on the phone so it opens without signal.
 // When you change the app, raise the version number so phones pick up the new files.
-const CACHE = "site-inventory-v2";
+const CACHE = "site-inventory-v3";
 const FILES = [
   "/",
   "/app.js",
   "/style.css",
   "/xlsx.js",
+  "/catalog.js",
   "/manifest.webmanifest",
   "/apple-touch-icon.png",
   "/icon-192.png",

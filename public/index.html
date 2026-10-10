@@ -88,12 +88,19 @@
   <!-- 3) New material / edit details -->
   <main id="view-edit" class="view" hidden>
     <section class="card">
-      <label>Art.-Nr. / Item no.
-        <input id="e-no" type="text" autocomplete="off">
-      </label>
       <label>Bezeichnung / Name
-        <input id="e-name" type="text" autocomplete="off" placeholder="z.B. Speedpipe 7x1,5 orange">
+        <input id="e-name" type="text" autocomplete="off" placeholder="Name, Netceed-Nr. oder UGG-Code / or code">
       </label>
+      <!-- Suggestions from the catalog while typing a new material -->
+      <div id="e-suggest" class="suggest" hidden></div>
+      <div class="two">
+        <label>Art.-Nr. / Item no.
+          <input id="e-no" type="text" autocomplete="off">
+        </label>
+        <label>UGG-Code
+          <input id="e-ugg" type="text" autocomplete="off" placeholder="optional">
+        </label>
+      </div>
       <div class="two">
         <label>Kategorie / Category <select id="e-cat"></select></label>
         <label>Einheit / Unit <select id="e-unit"></select></label>
@@ -153,6 +160,7 @@
   <div id="toast" hidden></div>
 
   <script src="/xlsx.js"></script>
+  <script src="/catalog.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

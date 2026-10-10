@@ -13,6 +13,7 @@ const SHEET_NAME = "Lagerbestand – Inventory";
 // The last column links a row to the material on the phone; do not edit it in Smartsheet.
 const COLUMNS = [
   { key: "no", title: "Art.-Nr. / Item no.", type: "TEXT_NUMBER", primary: true },
+  { key: "ugg", title: "UGG-Code", type: "TEXT_NUMBER" },
   { key: "name", title: "Bezeichnung / Name", type: "TEXT_NUMBER" },
   { key: "category", title: "Kategorie / Category", type: "TEXT_NUMBER" },
   { key: "stock", title: "Bestand / Stock", type: "TEXT_NUMBER" },
@@ -136,17 +137,17 @@ async function syncSheet(env, rows) {
     throw e;
   }
 
-  // Column ids by title; add any column that is missing (e.g. deleted by mistake).
+  // Column ids by title; add any column that is missing (new in an app update, or deleted by mistake),
+  // one at a time at its usual place.
   const colId = Object.fromEntries(sheet.columns.map((c) => [c.title, c.id]));
-  const missing = COLUMNS.filter((c) => !colId[c.title]);
-  if (missing.length) {
-    const added = await smartsheet(
-      env,
-      "POST",
-      `/sheets/${id}/columns`,
-      missing.map((c, i) => ({ title: c.title, type: c.type, index: sheet.columns.length + i })),
-    );
-    for (const c of [].concat(added.result)) colId[c.title] = c.id;
+  let count = sheet.columns.length;
+  for (const [pos, c] of COLUMNS.entries()) {
+    if (colId[c.title]) continue;
+    const added = await smartsheet(env, "POST", `/sheets/${id}/columns`, [
+      { title: c.title, type: c.type, index: Math.min(pos, count) },
+    ]);
+    colId[c.title] = [].concat(added.result)[0].id;
+    count++;
   }
 
   // What is in the sheet now, by App-ID

@@ -162,3 +162,14 @@ button { font: inherit; cursor: pointer; }
 /* Smartsheet status */
 .sync-status.bad { color: var(--danger); }
 #s-sheet-link { display: block; text-align: center; color: var(--brand); }
+
+/* Catalog suggestions under the name field */
+.suggest { margin: -4px 0 10px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.suggest button {
+  display: block; width: 100%; text-align: left;
+  padding: 10px; border: 0; border-bottom: 1px solid var(--line);
+  background: #fff; color: var(--text); font-size: 15px;
+}
+.suggest button:last-child { border-bottom: 0; }
+.suggest .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.suggest .have { color: var(--ok); font-weight: 600; }
