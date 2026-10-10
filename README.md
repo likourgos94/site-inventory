@@ -47,6 +47,10 @@ From then on, every change on the `main` branch goes online automatically.
 3. In the app: ⚙︎ → **Smartsheet** → type the same PIN.
 4. In the app: ⚙︎ → **Team requests** → **Share link**, and send the link and the team code to the teams.
 
+Works with US (app.smartsheet.com) and EU (app.smartsheet.eu) Smartsheet accounts; the Worker finds the right one by itself.
+
+If the app says **Token ungültig / Token invalid**: make a new token in Smartsheet (step 1), then in Cloudflare edit `SMARTSHEET_TOKEN` and paste only the token (no spaces, no quotes). Saving it redeploys the Worker; then tap **Jetzt senden / Send now**.
+
 Tip: in Smartsheet, open *Anforderungen – Requests* → **Automation** → *When rows are added* → *Alert someone* to get an email or push message for each new request.
 
 The sheet always follows the phone: changes typed into the stock columns in Smartsheet are overwritten by the next change on the phone. Rows you add by hand in Smartsheet are left alone. Don't edit the *App-ID* column.
