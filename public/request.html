@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Material anfordern</title>
+  <meta name="theme-color" content="#b45309">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Anfordern">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/request.webmanifest">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Material anfordern / Request material</h1>
+  </header>
+
+  <!-- First time: team code and team name -->
+  <main id="setup" class="view" hidden>
+    <section class="card">
+      <h2>Anmelden / Sign in</h2>
+      <label>Team-Code
+        <input id="c-code" type="password" autocomplete="off">
+      </label>
+      <label>Team
+        <input id="c-team" type="text" autocomplete="off" placeholder="z.B. Team Müller">
+      </label>
+      <label>Dein Name / Your name
+        <input id="c-person" type="text" autocomplete="off" placeholder="optional">
+      </label>
+      <p id="c-error" class="error" hidden></p>
+      <button id="c-save" class="primary">Weiter / Continue</button>
+    </section>
+  </main>
+
+  <main id="main" class="view" hidden>
+    <div class="row-between">
+      <strong id="who"></strong>
+      <button id="change" class="link-btn" type="button" style="width:auto">ändern / change</button>
+    </div>
+
+    <!-- What the team wants -->
+    <section class="card">
+      <h2>Anforderung / Request</h2>
+      <div id="cart"></div>
+      <p id="cart-empty" class="hint">Wähle unten Material aus. / Choose materials below.</p>
+      <label>Adresse / Bereich / Notiz – Address / area / note
+        <input id="r-note" type="text" autocomplete="off">
+      </label>
+      <p id="r-error" class="error" hidden></p>
+      <button id="r-send" class="primary">Anfordern / Send request</button>
+    </section>
+
+    <!-- Materials in the warehouse -->
+    <section class="card">
+      <h2>Material im Lager / Materials in stock</h2>
+      <input id="search" type="search" placeholder="Suchen / Search" autocomplete="off">
+      <div id="materials"></div>
+      <p id="m-status" class="hint"></p>
+    </section>
+
+    <!-- What happened to earlier requests -->
+    <section class="card">
+      <h2>Meine Anforderungen / My requests</h2>
+      <div id="mine"></div>
+      <button id="mine-refresh" class="link-btn" type="button">Aktualisieren / Refresh</button>
+    </section>
+  </main>
+
+  <div id="toast" hidden></div>
+  <script src="/request.js"></script>
+</body>
+</html>

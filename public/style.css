@@ -173,3 +173,23 @@ button { font: inherit; cursor: pointer; }
 .suggest button:last-child { border-bottom: 0; }
 .suggest .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .suggest .have { color: var(--ok); font-weight: 600; }
+
+/* Team requests */
+.count {
+  display: inline-block; min-width: 22px; padding: 1px 7px; margin-left: 4px;
+  border-radius: 999px; background: var(--danger); color: #fff; font-size: 13px;
+}
+.req-line { border-top: 1px solid var(--line); padding: 10px 0 0; margin-top: 10px; }
+.req-line .name { font-weight: 600; }
+.req-line .qty-row input { font-size: 18px; }
+.req-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.req-actions button { margin: 0; }
+.link-box { word-break: break-all; font-size: 14px; background: var(--bg); padding: 8px; border-radius: 8px; }
+.status { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #e5e7eb; color: var(--muted); white-space: nowrap; }
+.status.open { background: var(--brand-light); color: var(--brand); }
+.status.approved { background: var(--ok-light); color: var(--ok); }
+.status.denied { background: var(--danger-light); color: var(--danger); }
+.remove {
+  flex: 0 0 auto; border: 0; background: transparent; color: var(--danger);
+  font-size: 14px; padding: 6px 0 6px 8px;
+}

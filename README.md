@@ -18,12 +18,14 @@ Built for FTTx site management (project LAHLU01, Lahnau).
 - Saves on the phone and works without signal. No history is kept: only the current amount and the last change.
 - **Smartsheet**: after every change the stock is sent to the sheet *Lagerbestand – Inventory* (one row per material). Without signal it is sent as soon as the phone is online again. The app creates the sheet itself the first time.
 
+- **Team requests**: teams open `/request.html`, sign in with the team code, pick materials and amounts and send a request. You see open requests under **Anforderungen der Teams / Team requests**, can lower amounts, and approve or deny. Approving takes the approved amounts out of stock as "Issue to team". Requests are kept in the Smartsheet sheet *Anforderungen – Requests* (one row per requested material), and teams see whether theirs was approved.
+
 ## Plan
 
 1. Material list, the four actions, Excel export ✅
 2. Send the stock to Smartsheet (one row per material), protected by a PIN ✅
-3. Login for more people (needed for step 4)
-4. Later: teams request material, you approve, and it is issued to that team
+3. Material catalog with suggestions ✅
+4. Team requests with approve / deny ✅
 
 ## Put it online (Cloudflare, one time)
 
@@ -41,7 +43,11 @@ From then on, every change on the `main` branch goes online automatically.
 2. In Cloudflare: **Workers & Pages** → **site-inventory** → **Settings** → **Variables and Secrets** → **Add**:
    - Type **Secret**, name `SMARTSHEET_TOKEN`, value = the token
    - Type **Secret**, name `APP_PIN`, value = a PIN you choose
+   - Type **Secret**, name `TEAM_PIN`, value = a code for the teams (different from your PIN)
 3. In the app: ⚙︎ → **Smartsheet** → type the same PIN.
+4. In the app: ⚙︎ → **Team requests** → **Share link**, and send the link and the team code to the teams.
+
+Tip: in Smartsheet, open *Anforderungen – Requests* → **Automation** → *When rows are added* → *Alert someone* to get an email or push message for each new request.
 
 The sheet always follows the phone: changes typed into the stock columns in Smartsheet are overwritten by the next change on the phone. Rows you add by hand in Smartsheet are left alone. Don't edit the *App-ID* column.
 
@@ -59,11 +65,12 @@ The stock is stored on this iPhone, with a copy in Smartsheet. Deleting the app 
 |---|---|
 | `public/index.html` | The screens |
 | `public/app.js` | The app logic |
+| `public/request.html`, `public/request.js` | The request page for the teams |
 | `public/catalog.js` | The material catalog for the suggestions. Copy a line to add a material |
 | `public/xlsx.js` | Makes the Excel file (small, no library needed) |
 | `public/style.css` | Colors and layout |
 | `public/sw.js` | Offline support. Raise the `CACHE` version after changes |
-| `src/index.js` | Cloudflare Worker: checks the PIN and writes the sheet to Smartsheet |
+| `src/index.js` | Cloudflare Worker: checks the PIN / team code and reads and writes the Smartsheet sheets |
 | `wrangler.jsonc` | Cloudflare settings |
 
 ## Try it on a computer

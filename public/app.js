@@ -165,13 +165,14 @@ let view = "list";
 
 function show(next) {
   view = next;
-  for (const v of ["list", "item", "edit", "settings"]) $(`#view-${v}`).hidden = v !== next;
+  for (const v of ["list", "item", "edit", "settings", "requests"]) $(`#view-${v}`).hidden = v !== next;
   $("#btn-back").hidden = next === "list";
   $("#btn-settings").hidden = next !== "list";
   $("#title").textContent =
     next === "item" ? "Material" :
     next === "edit" ? (current ? "Angaben / Details" : "Neues Material / New material") :
     next === "settings" ? "Einstellungen / Settings" :
+    next === "requests" ? "Anforderungen / Requests" :
     settings.warehouse || "Lager / Warehouse";
   window.scrollTo(0, 0);
 }
@@ -518,6 +519,7 @@ function renderSettings() {
   $("#s-categories").value = settings.categories.join("\n");
   $("#s-units").value = settings.units.join("\n");
   $("#s-pin").value = settings.pin || "";
+  $("#s-request-link").textContent = requestLink();
   renderSyncStatus();
 }
 
@@ -657,6 +659,177 @@ function renderSyncStatus() {
   if (sync.sheetUrl) link.href = sync.sheetUrl;
 }
 
+// ---------- Team requests ----------
+// Teams send requests from /request.html. They wait in Smartsheet until you approve or deny here.
+// Approving takes the approved amounts out of stock as "Issue to team".
+
+let openRequests = [];
+
+async function api(method, path, body) {
+  const res = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json", "X-App-Pin": settings.pin || "" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.error || `Fehler / Error ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+async function loadRequests() {
+  const status = $("#req-status");
+  if (!settings.pin) {
+    status.textContent = "PIN fehlt – in ⚙︎ eintragen / PIN missing – enter it in ⚙︎";
+    return;
+  }
+  if (!navigator.onLine) {
+    status.textContent = "Kein Netz – Anforderungen brauchen Internet. / No signal – requests need internet.";
+    return;
+  }
+  status.textContent = "Wird geladen … / Loading …";
+  try {
+    openRequests = (await api("GET", "/api/requests/open")).requests;
+    status.textContent = openRequests.length ? "" : "Keine offenen Anforderungen. / No open requests.";
+  } catch (e) {
+    status.textContent = e.message;
+  }
+  const badge = $("#req-badge");
+  badge.textContent = openRequests.length;
+  badge.hidden = openRequests.length === 0;
+  renderRequests();
+}
+
+function materialByNo(no) {
+  return materials.find((m) => String(m.no) === String(no));
+}
+
+function renderRequests() {
+  const box = $("#req-list");
+  box.innerHTML = "";
+  for (const r of openRequests) {
+    const card = el("section", { class: "card" });
+    const head = el("div", { class: "row-between" });
+    head.append(el("h2", {}, r.team), el("span", { class: "status open" }, "Offen / Open"));
+    card.append(head);
+    card.append(el("p", { class: "hint" }, `${r.request} · ${r.date}` + (r.person ? ` · ${r.person}` : "")));
+    if (r.note) card.append(el("p", {}, r.note));
+
+    const inputs = [];
+    for (const l of r.lines) {
+      const m = materialByNo(l.no);
+      const line = el("div", { class: "req-line" });
+      line.append(el("div", { class: "name" }, l.name));
+      line.append(el("div", { class: "hint" },
+        `Angefordert / Requested: ${fmtQty(l.qty)} ${l.unit} · ` +
+        (m ? `Lager / Stock: ${fmtQty(m.stock)} ${m.unit}` : "nicht im Lager / not in stock list")));
+      const label = el("label", {}, "Genehmigen / Approve");
+      const row = el("div", { class: "qty-row" });
+      const input = el("input", { type: "text", inputmode: "decimal", autocomplete: "off" });
+      input.value = String(m ? Math.min(l.qty, m.stock) : 0).replace(".", ",");
+      row.append(input, el("span", { class: "unit" }, l.unit));
+      label.append(row);
+      line.append(label);
+      card.append(line);
+      inputs.push({ line: l, material: m, input });
+    }
+
+    const error = el("p", { class: "error", hidden: "" });
+    const actions = el("div", { class: "req-actions" });
+    const approve = el("button", { class: "primary", type: "button" }, "✓ Genehmigen / Approve");
+    const deny = el("button", { class: "danger", type: "button" }, "✕ Ablehnen / Deny");
+    approve.onclick = () => approveRequest(r, inputs, error, [approve, deny]);
+    deny.onclick = () => denyRequest(r, [approve, deny]);
+    actions.append(approve, deny);
+    card.append(error, actions);
+    box.append(card);
+  }
+}
+
+async function approveRequest(r, inputs, error, buttons) {
+  // Check every amount before anything is changed
+  const lines = [];
+  for (const { line, material, input } of inputs) {
+    const qty = parseQty(input.value) ?? 0;
+    let problem = "";
+    if (Number.isNaN(qty)) problem = "bitte eine Zahl / please enter a number";
+    else if (qty > 0 && !material) problem = "nicht im Lager – 0 eintragen / not in stock list – enter 0";
+    else if (material && qty > material.stock) problem = `nur ${fmtQty(material.stock)} ${material.unit} auf Lager / only that much in stock`;
+    if (problem) {
+      error.textContent = `${line.name}: ${problem}`;
+      error.hidden = false;
+      return;
+    }
+    lines.push({ line, material, qty });
+  }
+  error.hidden = true;
+  buttons.forEach((b) => (b.disabled = true));
+  try {
+    // First mark the request as approved in Smartsheet, then take the stock out on the phone,
+    // so a request can never be taken out of stock twice.
+    await api("POST", "/api/requests/decide", {
+      request: r.request,
+      decision: "approve",
+      lines: lines.map((x) => ({ lineId: x.line.lineId, qty: x.qty })),
+    });
+    const now = new Date().toISOString();
+    for (const { material, qty } of lines) {
+      if (!material || qty <= 0) continue;
+      const after = round(material.stock - qty);
+      material.last = { kind: "issue", qty: -qty, before: material.stock, after, team: r.team, text: `Anforderung ${r.request}` };
+      material.stock = after;
+      material.updatedAt = now;
+      await db.putMaterial(material);
+    }
+    if (!settings.teams.includes(r.team)) {
+      settings.teams.push(r.team);
+      await saveSettings();
+    }
+    scheduleSync();
+    renderList();
+    toast(`Genehmigt / Approved: ${r.team}`);
+  } catch (e) {
+    toast(e.message);
+  }
+  await loadRequests();
+}
+
+async function denyRequest(r, buttons) {
+  const reason = prompt("Grund (optional) / Reason (optional)");
+  if (reason === null) return; // cancelled
+  buttons.forEach((b) => (b.disabled = true));
+  try {
+    await api("POST", "/api/requests/decide", { request: r.request, decision: "deny", reason });
+    toast(`Abgelehnt / Denied: ${r.team}`);
+  } catch (e) {
+    toast(e.message);
+  }
+  await loadRequests();
+}
+
+const requestLink = () => `${location.origin}/request.html`;
+
+async function shareRequestLink() {
+  const url = requestLink();
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: "Material anfordern / Request material", url });
+      return;
+    } catch (e) {
+      if (e.name === "AbortError") return;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    toast("Link kopiert / Link copied");
+  } catch {
+    toast(url);
+  }
+}
+
 // Opens the iPhone share sheet (Mail, WhatsApp, Save to Files...).
 async function shareFile(blob, fileName) {
   const file = new File([blob], fileName, { type: blob.type });
@@ -724,14 +897,24 @@ async function init() {
     });
   }
   $("#s-sync").onclick = syncNow;
+  $("#s-share-link").onclick = shareRequestLink;
+  $("#btn-requests").onclick = () => {
+    renderRequests();
+    show("requests");
+    loadRequests();
+  };
+  $("#req-refresh").onclick = loadRequests;
 
   // Send to Smartsheet when the app opens, and when signal comes back.
   window.addEventListener("online", () => sync.dirty && syncNow());
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && sync.dirty) syncNow();
+    if (document.visibilityState !== "visible") return;
+    if (sync.dirty) syncNow();
+    if (settings.pin) loadRequests(); // new team requests
   });
   renderSyncStatus();
   if (materials.length) syncNow();
+  if (settings.pin) loadRequests();
 
   $("#btn-back").onclick = async () => {
     if (view === "settings") {
