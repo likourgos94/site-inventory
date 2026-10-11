@@ -19,13 +19,30 @@
     <button id="btn-settings" class="icon-btn" aria-label="Einstellungen / Settings">⚙︎</button>
   </header>
 
+  <!-- Shown on any phone without your PIN -->
+  <main id="view-lock" class="view" hidden>
+    <section class="card">
+      <h2>Nur für Lagerleitung / Manager only</h2>
+      <p class="hint">Bestand ändern und Anforderungen genehmigen geht nur mit der PIN. / Changing stock and approving requests needs the PIN.</p>
+      <label>PIN
+        <input id="l-pin" type="password" autocomplete="current-password">
+      </label>
+      <p id="l-error" class="error" hidden></p>
+      <button id="l-open" class="primary" type="button">Öffnen / Open</button>
+    </section>
+    <a class="secondary" href="/request.html">Material anfordern (Teams) / Request material (teams)</a>
+  </main>
+
   <!-- 1) List of all materials -->
   <main id="view-list" class="view">
     <div class="two">
       <button id="btn-new" class="primary">+ Neues Material / New material</button>
       <button id="btn-export" class="secondary">Excel exportieren / Export Excel</button>
     </div>
-    <button id="btn-requests" class="secondary">Anforderungen der Teams / Team requests <span id="req-badge" class="count" hidden></span></button>
+    <div class="two">
+      <button id="btn-requests" class="secondary">Anforderungen / Requests <span id="req-badge" class="count" hidden></span></button>
+      <button id="btn-history" class="secondary">Verlauf / History</button>
+    </div>
     <input id="search" type="search" placeholder="Suchen / Search" autocomplete="off">
     <div class="filters">
       <select id="filter-cat" aria-label="Kategorie / Category"></select>
@@ -84,6 +101,7 @@
     </section>
 
     <button id="btn-edit" class="secondary">Angaben bearbeiten / Edit details</button>
+    <button id="btn-item-history" class="secondary">Verlauf / History</button>
   </main>
 
   <!-- 3) New material / edit details -->
@@ -128,6 +146,24 @@
     <p id="req-status" class="hint"></p>
     <div id="req-list"></div>
     <button id="req-refresh" class="link-btn" type="button">Aktualisieren / Refresh</button>
+  </main>
+
+  <!-- Everything that happened: edits, stock moves and team requests -->
+  <main id="view-history" class="view" hidden>
+    <p id="h-material" class="chip" hidden>
+      <span>Nur / Only: <b id="h-material-name"></b></span>
+      <button id="h-material-clear" type="button">Alle anzeigen / Show all</button>
+    </p>
+    <input id="h-search" type="search" placeholder="Suchen: Material, Team, Anforderung … / Search" autocomplete="off">
+    <select id="h-filter" aria-label="Art / Type">
+      <option value="">Alles / Everything</option>
+      <option value="moves">Bestandsbewegungen / Stock moves</option>
+      <option value="edits">Angaben, neu, gelöscht / Details, new, deleted</option>
+      <option value="requests">Anforderungen / Requests</option>
+    </select>
+    <p id="h-summary" class="hint"></p>
+    <div id="h-list"></div>
+    <button id="h-more" class="link-btn" type="button" hidden>Mehr anzeigen / Show more</button>
   </main>
 
   <!-- 4) Settings -->

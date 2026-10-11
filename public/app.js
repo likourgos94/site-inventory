@@ -1,6 +1,6 @@
 // Site Inventory: the material in the warehouse (Lager) and how much is left.
 // Everything is stored on the phone (IndexedDB), so it works without signal.
-// No history is kept: each material remembers only its current stock and its last change.
+// Every change is also written to the history (Verlauf), which is copied to Smartsheet.
 
 // ---------- Fixed texts (German / English) ----------
 
@@ -21,6 +21,34 @@ const LAST_NAMES = {
   set: "Bestand gesetzt / Amount set",
 };
 
+// Names of the history entries
+const HISTORY_NAMES = {
+  ...LAST_NAMES,
+  edit: "Angaben geändert / Details changed",
+  delete: "Gelöscht / Deleted",
+  request: "Anforderung erhalten / Request received",
+  approved: "Anforderung genehmigt / Request approved",
+  denied: "Anforderung abgelehnt / Request denied",
+};
+
+// The filter on the history page: which kinds of entries each choice shows
+const HISTORY_GROUPS = {
+  moves: ["new", "in", "issue", "transfer-in", "transfer-out", "set", "approved"],
+  edits: ["new", "edit", "delete"],
+  requests: ["request", "approved", "denied"],
+};
+
+// Details that count as an edit, with their short names
+const EDIT_FIELDS = [
+  ["name", "Name"],
+  ["no", "Art.-Nr."],
+  ["ugg", "UGG"],
+  ["category", "Kategorie"],
+  ["unit", "Einheit"],
+  ["min", "Min."],
+  ["note", "Notiz"],
+];
+
 // ---------- Storage on the phone (IndexedDB) ----------
 
 const db = {
@@ -28,14 +56,21 @@ const db = {
   open() {
     if (!this._open) {
       this._open = new Promise((resolve, reject) => {
-        const req = indexedDB.open("site-inventory", 1);
-        req.onupgradeneeded = () => {
+        const req = indexedDB.open("site-inventory", 2);
+        req.onupgradeneeded = (event) => {
           const conn = req.result;
-          // One entry per material: { id, no, name, category, unit, stock, min, note, updatedAt, last }
-          conn.createObjectStore("materials", { keyPath: "id" });
-          conn.createObjectStore("settings");
+          if (event.oldVersion < 1) {
+            // One entry per material: { id, no, name, category, unit, stock, min, note, updatedAt, last }
+            conn.createObjectStore("materials", { keyPath: "id" });
+            conn.createObjectStore("settings");
+          }
+          // Version 2: one entry per change (see addHistory)
+          if (event.oldVersion < 2) conn.createObjectStore("history", { keyPath: "id" });
         };
-        req.onsuccess = () => resolve(req.result);
+        req.onsuccess = () => {
+          req.result.onversionchange = () => req.result.close(); // let a newer app version upgrade
+          resolve(req.result);
+        };
         req.onerror = () => reject(req.error);
       });
     }
@@ -53,6 +88,8 @@ const db = {
   allMaterials: () => db.run("materials", "readonly", (s) => s.getAll()),
   putMaterial: (m) => db.run("materials", "readwrite", (s) => s.put(m)),
   deleteMaterial: (id) => db.run("materials", "readwrite", (s) => s.delete(id)),
+  allHistory: () => db.run("history", "readonly", (s) => s.getAll()),
+  putHistory: (list) => db.run("history", "readwrite", (s) => list.map((h) => s.put(h)).pop() || {}),
   getSettings: () => db.run("settings", "readonly", (s) => s.get("main")),
   putSettings: (v) => db.run("settings", "readwrite", (s) => s.put(v, "main")),
 };
@@ -103,6 +140,16 @@ function fmtDateTime(iso) {
   return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// Day heading on the history page: "Heute / Today", "Gestern / Yesterday" or "Fr., 09.10.2026"
+function dayTitle(iso) {
+  const d = new Date(iso);
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (localDate(d) === localDate(new Date())) return "Heute / Today";
+  if (localDate(d) === localDate(yesterday)) return "Gestern / Yesterday";
+  return d.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
 // 1250.5 -> "1.250,5" (German style)
 const fmtQty = (n) => (Number.isFinite(n) ? n.toLocaleString("de-DE", { maximumFractionDigits: 3 }) : "–");
 
@@ -142,6 +189,8 @@ function toast(text) {
   toastTimer = setTimeout(() => (t.hidden = true), 2500);
 }
 
+const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
 // Next free item number, e.g. MAT-0013
 function nextNo() {
   let max = 0;
@@ -160,19 +209,24 @@ let current = null; // the material that is open
 let action = null; // "in" | "issue" | "transfer" | "set" while the move form is open
 let transferDir = "in";
 let view = "list";
+let history = []; // every change, see addHistory
+let historyMaterial = null; // the material whose history is shown, or null for all
+let historyLimit = 100; // entries shown before "Show more"
+let locked = false; // true while the lock screen is shown
 
 // ---------- Views ----------
 
 function show(next) {
   view = next;
-  for (const v of ["list", "item", "edit", "settings", "requests"]) $(`#view-${v}`).hidden = v !== next;
-  $("#btn-back").hidden = next === "list";
+  for (const v of ["lock", "list", "item", "edit", "settings", "requests", "history"]) $(`#view-${v}`).hidden = v !== next;
+  $("#btn-back").hidden = next === "list" || next === "lock";
   $("#btn-settings").hidden = next !== "list";
   $("#title").textContent =
     next === "item" ? "Material" :
     next === "edit" ? (current ? "Angaben / Details" : "Neues Material / New material") :
     next === "settings" ? "Einstellungen / Settings" :
     next === "requests" ? "Anforderungen / Requests" :
+    next === "history" ? "Verlauf / History" :
     settings.warehouse || "Lager / Warehouse";
   window.scrollTo(0, 0);
 }
@@ -351,6 +405,7 @@ async function saveMove() {
   current.stock = r.after;
   current.updatedAt = new Date().toISOString();
   await db.putMaterial(current);
+  await addHistory(forMaterial(current, current.last));
   scheduleSync();
 
   if (team && !settings.teams.includes(team)) {
@@ -410,6 +465,7 @@ async function saveEdit() {
   if (Number.isNaN(min)) return err("Mindestbestand: bitte eine Zahl. / Min. stock: please enter a number.");
 
   if (current) {
+    const before = { ...current };
     Object.assign(current, {
       no, name, min,
       ugg: $("#e-ugg").value.trim(),
@@ -418,6 +474,10 @@ async function saveEdit() {
       note: $("#e-note").value.trim(),
     });
     await db.putMaterial(current);
+    const shown = (v) => (v === null || v === undefined || v === "" ? "–" : typeof v === "number" ? fmtQty(v) : v);
+    const changed = EDIT_FIELDS.filter(([k]) => String(before[k] ?? "") !== String(current[k] ?? ""))
+      .map(([k, label]) => `${label}: ${shown(before[k])} → ${shown(current[k])}`);
+    if (changed.length) await addHistory(forMaterial(current, { kind: "edit", text: changed.join(" · ") }));
     scheduleSync();
     renderItem();
     renderList();
@@ -429,7 +489,7 @@ async function saveEdit() {
   if (Number.isNaN(stock)) return err("Bestand: bitte eine Zahl. / Stock: please enter a number.");
   const now = new Date().toISOString();
   const m = {
-    id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    id: newId(),
     no, name, min,
     ugg: $("#e-ugg").value.trim(),
     category: $("#e-cat").value,
@@ -442,6 +502,7 @@ async function saveEdit() {
   };
   materials.push(m);
   await db.putMaterial(m);
+  await addHistory(forMaterial(m, { kind: "new", qty: m.stock, before: 0, after: m.stock }));
   scheduleSync();
   renderCategoryFilter();
   renderList();
@@ -490,6 +551,7 @@ async function deleteCurrent() {
   if (!current) return;
   if (!confirm(`„${current.name}“ wirklich löschen? / Really delete “${current.name}”?`)) return;
   await db.deleteMaterial(current.id);
+  await addHistory(forMaterial(current, { kind: "delete", before: current.stock }));
   materials = materials.filter((m) => m.id !== current.id);
   current = null;
   scheduleSync();
@@ -617,16 +679,22 @@ async function syncNow() {
   }
   syncing = true;
   const sending = changes;
+  // History entries not in Smartsheet yet, oldest first (at most 300 at a time)
+  const entries = history.filter((h) => !h.sent).sort((a, b) => a.at.localeCompare(b.at)).slice(0, 300);
   renderSyncStatus();
   try {
     const res = await fetch("/api/sync", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-App-Pin": settings.pin },
-      body: JSON.stringify({ rows: materials.map(materialRow) }),
+      body: JSON.stringify({ rows: materials.map(materialRow), history: entries.map(historyRow) }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `Fehler / Error ${res.status}`);
-    sync.dirty = changes !== sending;
+    for (const h of entries) h.sent = true;
+    if (entries.length) await db.putHistory(entries);
+    const more = history.some((h) => !h.sent);
+    if (more) setTimeout(syncNow, 0); // send the rest
+    sync.dirty = changes !== sending || more;
     sync.error = "";
     sync.lastOk = new Date().toISOString();
     if (data.sheetUrl) sync.sheetUrl = data.sheetUrl;
@@ -694,6 +762,20 @@ async function loadRequests() {
   try {
     openRequests = (await api("GET", "/api/requests/open")).requests;
     status.textContent = openRequests.length ? "" : "Keine offenen Anforderungen. / No open requests.";
+    // New requests go into the history once, with the time they were sent
+    const fresh = openRequests.filter((r) => !history.some((h) => h.id === `request-${r.request}`));
+    if (fresh.length) {
+      await addHistory(...fresh.map((r) => ({
+        id: `request-${r.request}`,
+        at: requestTime(r.date),
+        kind: "request",
+        name: requestSummary(r),
+        team: r.team,
+        request: r.request,
+        text: [r.person, r.note].filter(Boolean).join(" · "),
+      })));
+      scheduleSync();
+    }
   } catch (e) {
     status.textContent = e.message;
   }
@@ -702,6 +784,20 @@ async function loadRequests() {
   badge.hidden = openRequests.length === 0;
   renderRequests();
 }
+
+// "10.10.2026 22:13" (time in Germany, from the Worker) -> ISO time,
+// also right when the phone is set to another time zone (e.g. on holiday).
+function requestTime(text) {
+  const m = /^(\d{2})\.(\d{2})\.(\d{4}) (\d{2}):(\d{2})/.exec(text || "");
+  if (!m) return new Date().toISOString();
+  const asUtc = new Date(Date.UTC(m[3], m[2] - 1, m[1], m[4], m[5]));
+  const inZone = (zone) => new Date(asUtc.toLocaleString("en-US", { timeZone: zone }));
+  const berlinAhead = inZone("Europe/Berlin") - inZone("UTC"); // 1 or 2 hours
+  return new Date(asUtc - berlinAhead).toISOString();
+}
+
+// "1.000 m Speedpipe, 30 Stk. Labels"
+const requestSummary = (r) => r.lines.map((l) => `${fmtQty(l.qty)} ${l.unit} ${l.name}`).join(", ");
 
 function materialByNo(no) {
   return materials.find((m) => String(m.no) === String(no));
@@ -776,14 +872,22 @@ async function approveRequest(r, inputs, error, buttons) {
       lines: lines.map((x) => ({ lineId: x.line.lineId, qty: x.qty })),
     });
     const now = new Date().toISOString();
-    for (const { material, qty } of lines) {
+    const entries = [];
+    for (const { line, material, qty } of lines) {
+      const entry = {
+        kind: "approved", no: line.no, name: line.name, unit: line.unit, qty: qty ? -qty : 0,
+        team: r.team, request: r.request, text: `angefordert / requested: ${fmtQty(line.qty)}`,
+      };
+      entries.push(entry);
       if (!material || qty <= 0) continue;
       const after = round(material.stock - qty);
+      Object.assign(entry, { materialId: material.id, before: material.stock, after });
       material.last = { kind: "issue", qty: -qty, before: material.stock, after, team: r.team, text: `Anforderung ${r.request}` };
       material.stock = after;
       material.updatedAt = now;
       await db.putMaterial(material);
     }
+    await addHistory(...entries);
     if (!settings.teams.includes(r.team)) {
       settings.teams.push(r.team);
       await saveSettings();
@@ -803,11 +907,147 @@ async function denyRequest(r, buttons) {
   buttons.forEach((b) => (b.disabled = true));
   try {
     await api("POST", "/api/requests/decide", { request: r.request, decision: "deny", reason });
+    await addHistory({ kind: "denied", name: requestSummary(r), team: r.team, request: r.request, text: reason.trim() });
+    scheduleSync();
     toast(`Abgelehnt / Denied: ${r.team}`);
   } catch (e) {
     toast(e.message);
   }
   await loadRequests();
+}
+
+// ---------- History (Verlauf) ----------
+// One entry per change: { id, at, kind, materialId, no, name, unit, qty, before, after, team, request, text, sent }
+// "sent" means it is already in the Smartsheet sheet "Verlauf – History".
+
+async function addHistory(...entries) {
+  const at = new Date().toISOString();
+  const list = entries.map((e) => ({
+    id: newId(), at, materialId: "", no: "", name: "", unit: "", qty: null, before: null, after: null,
+    team: "", request: "", text: "", ...e, sent: false,
+  }));
+  if (!list.length) return;
+  history.push(...list);
+  await db.putHistory(list);
+}
+
+// An entry about a material, with its number, name and unit
+const forMaterial = (m, extra) => ({ materialId: m.id, no: m.no, name: m.name, unit: m.unit, ...extra });
+
+// One entry as a row of the Smartsheet sheet
+function historyRow(h) {
+  return {
+    id: h.id, time: h.at, kind: HISTORY_NAMES[h.kind] || h.kind, no: h.no, name: h.name,
+    change: h.qty ?? "", before: h.before ?? "", after: h.after ?? "", unit: h.unit,
+    team: h.team, request: h.request, text: h.text,
+  };
+}
+
+function openHistory(material) {
+  historyMaterial = material || null;
+  historyLimit = 100;
+  $("#h-search").value = "";
+  $("#h-filter").value = "";
+  renderHistory();
+  show("history");
+}
+
+function renderHistory() {
+  const words = $("#h-search").value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const group = HISTORY_GROUPS[$("#h-filter").value];
+  const shown = history
+    .filter((h) =>
+      (!historyMaterial || h.materialId === historyMaterial.id) &&
+      (!group || group.includes(h.kind)) &&
+      words.every((w) => `${HISTORY_NAMES[h.kind]} ${h.no} ${h.name} ${h.team} ${h.request} ${h.text}`.toLowerCase().includes(w)))
+    .sort((a, b) => b.at.localeCompare(a.at));
+
+  $("#h-material").hidden = !historyMaterial;
+  if (historyMaterial) $("#h-material-name").textContent = historyMaterial.name;
+  $("#h-summary").textContent = history.length
+    ? `${shown.length} Einträge / entries`
+    : "Noch keine Einträge. Ab jetzt erscheint hier jede Änderung. / No entries yet. From now on every change shows up here.";
+
+  const box = $("#h-list");
+  box.innerHTML = "";
+  let day = null;
+  for (const h of shown.slice(0, historyLimit)) {
+    const title = dayTitle(h.at);
+    if (title !== day) {
+      day = title;
+      box.append(el("div", { class: "group-title" }, title));
+    }
+    box.append(historyEntry(h));
+  }
+  $("#h-more").hidden = shown.length <= historyLimit;
+}
+
+function historyEntry(h) {
+  const d = new Date(h.at);
+  const box = el("div", { class: `hist ${h.kind}` });
+  const left = el("div");
+  left.append(el("div", { class: "kind" }, `${pad(d.getHours())}:${pad(d.getMinutes())} · ${HISTORY_NAMES[h.kind] || h.kind}`));
+  if (h.name) left.append(el("div", { class: "name" }, h.name));
+  const meta = [h.no, h.team, h.request, h.text].filter(Boolean).join(" · ");
+  if (meta) left.append(el("div", { class: "meta" }, meta));
+  box.append(left);
+
+  const right = el("div", { class: "change" });
+  if (h.kind === "delete") {
+    if (h.before !== null) right.append(el("div", { class: "meta" }, `Bestand / Stock: ${fmtQty(h.before)} ${h.unit}`));
+  } else if (h.qty !== null) {
+    const sign = h.qty > 0 ? "+" : h.qty < 0 ? "−" : "";
+    right.append(el("div", { class: `qty ${h.qty > 0 ? "plus" : h.qty < 0 ? "minus" : ""}` }, `${sign}${fmtQty(Math.abs(h.qty))} ${h.unit}`));
+    if (h.before !== null && h.after !== null) right.append(el("div", { class: "meta" }, `${fmtQty(h.before)} → ${fmtQty(h.after)}`));
+  }
+  box.append(right);
+  return box;
+}
+
+// ---------- Lock screen ----------
+// Only a phone with your PIN (APP_PIN) opens the warehouse app. Everyone else
+// sees the lock screen with a button to the teams' request page.
+
+function showLock(message) {
+  locked = true;
+  $("#l-pin").value = "";
+  $("#l-error").textContent = message || "";
+  $("#l-error").hidden = !message;
+  show("lock");
+}
+
+async function unlock() {
+  const pin = $("#l-pin").value.trim();
+  const error = (text) => {
+    $("#l-error").textContent = text;
+    $("#l-error").hidden = false;
+  };
+  if (!pin) return error("Bitte PIN eingeben. / Please enter the PIN.");
+  if (!navigator.onLine) return error("Kein Netz – zum Entsperren wird Internet gebraucht. / No signal – unlocking needs internet.");
+  try {
+    await checkPin(pin);
+  } catch (e) {
+    return error(e.message);
+  }
+  settings.pin = pin;
+  await saveSettings();
+  locked = false;
+  renderList();
+  show("list");
+  renderSyncStatus();
+  if (materials.length || history.length) syncNow();
+  loadRequests();
+}
+
+// Asks the Worker whether this is your PIN. Throws with the reason if not.
+async function checkPin(pin) {
+  const res = await fetch("/api/check", { headers: { "X-App-Pin": pin } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.error || `Fehler / Error ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
 }
 
 const requestLink = () => `${location.origin}/request.html`;
@@ -855,6 +1095,7 @@ async function init() {
   settings = { ...defaultSettings(), ...(saved || {}) };
   if (!settings.catalogCategories) addCatalogCategories();
   materials = await db.allMaterials();
+  history = await db.allHistory();
   sync = { ...sync, ...((await db.run("settings", "readonly", (s) => s.get("sync"))) || {}) };
   renderTeams();
   renderCategoryFilter();
@@ -905,16 +1146,35 @@ async function init() {
   };
   $("#req-refresh").onclick = loadRequests;
 
+  $("#btn-history").onclick = () => openHistory(null);
+  $("#btn-item-history").onclick = () => openHistory(current);
+  $("#h-search").addEventListener("input", () => {
+    historyLimit = 100;
+    renderHistory();
+  });
+  $("#h-filter").addEventListener("change", () => {
+    historyLimit = 100;
+    renderHistory();
+  });
+  $("#h-material-clear").onclick = () => {
+    historyMaterial = null;
+    renderHistory();
+  };
+  $("#h-more").onclick = () => {
+    historyLimit += 100;
+    renderHistory();
+  };
+
+  $("#l-open").onclick = unlock;
+  $("#l-pin").addEventListener("keydown", (e) => e.key === "Enter" && unlock());
+
   // Send to Smartsheet when the app opens, and when signal comes back.
-  window.addEventListener("online", () => sync.dirty && syncNow());
+  window.addEventListener("online", () => !locked && sync.dirty && syncNow());
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState !== "visible") return;
+    if (document.visibilityState !== "visible" || locked) return;
     if (sync.dirty) syncNow();
     if (settings.pin) loadRequests(); // new team requests
   });
-  renderSyncStatus();
-  if (materials.length) syncNow();
-  if (settings.pin) loadRequests();
 
   $("#btn-back").onclick = async () => {
     if (view === "settings") {
@@ -923,7 +1183,7 @@ async function init() {
       renderCategoryFilter();
       renderList();
       show("list");
-    } else if (view === "edit" && current) {
+    } else if ((view === "edit" || view === "history") && current) {
       show("item");
     } else {
       current = null;
@@ -933,7 +1193,24 @@ async function init() {
     }
   };
 
-  show("list");
+  // Without your PIN on this phone, only the lock screen is shown.
+  if (!settings.pin) {
+    showLock();
+  } else {
+    show("list");
+    renderSyncStatus();
+    if (materials.length || history.some((h) => !h.sent)) syncNow();
+    loadRequests();
+    // If APP_PIN was changed in Cloudflare, a phone with the old PIN gets locked.
+    if (navigator.onLine) {
+      checkPin(settings.pin).catch((e) => {
+        if (e.status !== 401) return;
+        settings.pin = "";
+        saveSettings();
+        showLock("PIN wurde geändert – bitte neue PIN eingeben. / The PIN was changed – please enter the new one.");
+      });
+    }
+  }
 
   // Ask the phone to keep our data, and make the app work offline.
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist();

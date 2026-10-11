@@ -15,10 +15,12 @@ Built for FTTx site management (project LAHLU01, Lahnau).
   - **Bestand setzen / Set amount**: type the counted number directly
 - Items below their minimum stock turn red
 - **Export Excel**: an `.xlsx` file with all materials and amounts, opened in the iPhone share sheet (Mail, WhatsApp, Save to Files)
-- Saves on the phone and works without signal. No history is kept: only the current amount and the last change.
+- Saves on the phone and works without signal.
+- **Verlauf / History**: every change in one list, newest first: arrivals, issues, transfers, counted amounts, new / edited / deleted materials, and team requests (received, approved, denied). Filter by kind, search by material, team or request number, or open it from a material to see only that material. Also copied to the Smartsheet sheet *Verlauf – History* (one row per change).
+- **Lock screen**: the warehouse app only opens on a phone with your PIN (APP_PIN). Anyone else sees "Manager only" and a button to the teams' request page. If you change APP_PIN in Cloudflare, every phone with the old PIN is locked until the new one is typed.
 - **Smartsheet**: after every change the stock is sent to the sheet *Lagerbestand – Inventory* (one row per material). Without signal it is sent as soon as the phone is online again. The app creates the sheet itself the first time.
 
-- **Team requests**: teams open `/request.html`, sign in with the team code, pick materials and amounts and send a request. You see open requests under **Anforderungen der Teams / Team requests**, can lower amounts, and approve or deny. Approving takes the approved amounts out of stock as "Issue to team". Requests are kept in the Smartsheet sheet *Anforderungen – Requests* (one row per requested material), and teams see whether theirs was approved.
+- **Team requests**: teams open `/request.html`, sign in with the team code, pick materials and amounts and send a request. You see open requests under **Anforderungen / Requests**, can lower amounts, and approve or deny. Approving takes the approved amounts out of stock as "Issue to team". Requests are kept in the Smartsheet sheet *Anforderungen – Requests* (one row per requested material), and teams see whether theirs was approved.
 
 ## Plan
 
@@ -26,6 +28,7 @@ Built for FTTx site management (project LAHLU01, Lahnau).
 2. Send the stock to Smartsheet (one row per material), protected by a PIN ✅
 3. Material catalog with suggestions ✅
 4. Team requests with approve / deny ✅
+5. History of all changes, lock screen ✅
 
 ## Put it online (Cloudflare, one time)
 
@@ -44,7 +47,7 @@ From then on, every change on the `main` branch goes online automatically.
    - Type **Secret**, name `SMARTSHEET_TOKEN`, value = the token
    - Type **Secret**, name `APP_PIN`, value = a PIN you choose
    - Type **Secret**, name `TEAM_PIN`, value = a code for the teams (different from your PIN)
-3. In the app: ⚙︎ → **Smartsheet** → type the same PIN.
+3. Open the app and type the same PIN on the lock screen. Use a long PIN, like a password (10 or more letters and numbers): a short number could be guessed by trying.
 4. In the app: ⚙︎ → **Team requests** → **Share link**, and send the link and the team code to the teams.
 
 Works with US (app.smartsheet.com) and EU (app.smartsheet.eu) Smartsheet accounts; the Worker finds the right one by itself.
