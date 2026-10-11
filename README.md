@@ -13,6 +13,7 @@ Built for FTTx site management (project LAHLU01, Lahnau).
   - **Ausgabe an Team / Issue to team**: takes from stock (team name is remembered)
   - **Umlagerung / Transfer**: in or out, to or from another warehouse or project
   - **Bestand setzen / Set amount**: type the counted number directly
+- **Zählen / Count** (stock-taking): on a material, tap standard amounts (+1, +5, +10, +50, +100, set your own in ⚙︎) and type any other amount; the app adds them up and shows the difference to the stock. Materials with a pack size in the name (e.g. `VPE=6000m`) also get a "+1 VPE" button. **Save** makes the total the new stock; **Save & next** goes straight to the next material in the list. An unfinished count is kept if the app is closed.
 - Items below their minimum stock turn red
 - **Export Excel**: an `.xlsx` file with all materials and amounts, opened in the iPhone share sheet (Mail, WhatsApp, Save to Files)
 - Saves on the phone and works without signal.
@@ -29,6 +30,7 @@ Built for FTTx site management (project LAHLU01, Lahnau).
 3. Material catalog with suggestions ✅
 4. Team requests with approve / deny ✅
 5. History of all changes, lock screen ✅
+6. Count (stock-taking) with standard amounts ✅
 
 ## Put it online (Cloudflare, one time)
 
